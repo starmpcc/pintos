@@ -139,6 +139,11 @@ void
 thread_tick (void) {
 	struct thread *t = thread_current ();
 
+	// 현재 시간이랑 깨울 시간 체크하고 깨울 거 있으면 깨우기
+	// 리스트 
+	// 여러 개를 한번에 깨울 경우
+	//1틱 남았을 때 레디리스트로 보내기
+	// current thread 바꿀 수도 있다 
 	/* Update statistics. */
 	if (t == idle_thread)
 		idle_ticks++;
@@ -418,6 +423,7 @@ init_thread (struct thread *t, const char *name, int priority) {
    idle_thread. */
 static struct thread *
 next_thread_to_run (void) {
+	// 2  구현 포인트 결정 포인트 
 	if (list_empty (&ready_list))
 		return idle_thread;
 	else

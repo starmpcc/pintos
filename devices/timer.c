@@ -93,8 +93,15 @@ timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
 
 	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	
+	// 현재 스레드 깨울 시간 계산해서 스레드 구조체에 추가하고 기다리기 
+	// sleep list 가 정렬 상태 유지하게 삽입
+	//while 지우고 yield
+	thread_yield();
+//	while (timer_elapsed (start) < ticks)
+//		thread_yield ();
+		//resume point
+
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -176,11 +183,14 @@ real_time_sleep (int64_t num, int32_t denom) {
 		   timer_sleep() because it will yield the CPU to other
 		   processes. */
 		timer_sleep (ticks);
+		// 주어진 시간이 1틱보다 클 때 
 	} else {
 		/* Otherwise, use a busy-wait loop for more accurate
 		   sub-tick timing.  We scale the numerator and denominator
 		   down by 1000 to avoid the possibility of overflow. */
 		ASSERT (denom % 1000 == 0);
 		busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
+		// 주어진 시간이 1틱보다 작을 때
+
 	}
 }
