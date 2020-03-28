@@ -113,7 +113,7 @@ test_sleep (int thread_cnt, int iterations)
       new_prod = ++t->iterations * t->duration;
         
       msg ("thread %d: duration=%d, iteration=%d, product=%d",
-           t->id, t->duration, t->iterations, new_prod);
+           t->id, t->duration, t->iterations, new_prod);sleeper
       
       if (new_prod >= product)
         product = new_prod;
@@ -144,7 +144,7 @@ sleeper (void *t_)
   for (i = 1; i <= test->iterations; i++) 
     {
       int64_t sleep_until = test->start + i * t->duration;
-      timer_sleep (sleep_until - timer_ticks ());
+      timer_sleep (sleep_until -  timer_ticks ());
       lock_acquire (&test->output_lock);
       *test->output_pos++ = t->id;
       lock_release (&test->output_lock);

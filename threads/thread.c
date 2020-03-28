@@ -28,6 +28,8 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+struct list sleep_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -110,6 +112,8 @@ thread_init (void) {
 	list_init (&ready_list);
 	list_init (&destruction_req);
 
+	list_init (&sleep_list);
+
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
 	init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -138,6 +142,24 @@ thread_start (void) {
 void
 thread_tick (void) {
 	struct thread *t = thread_current ();
+	while (!list_empty(&sleep_list)){
+		struct sleep_tuple* head = (struct sleep_tuple*) list_entry(list_tail(&sleep_list), struct sleep_tuple, elem); 
+		printf("wakeup-tick:%lld", head->wakeup_tick);
+		if (head->wakeup_tick<=timer_ticks()+1){
+			list_pop_back(&sleep_list);
+			list_push_back(&ready_list, &(head->thread->elem));
+			thread_unblock(head->thread);
+		}
+		else break;
+	}
+
+	//printf("current tick: %lld, wakeup tick: %lld\n", timer_ticks(), ((struct sleep_tuple *)list_entry(list_front(&sleep_list), struct sleep_tuple, elem))->wakeup_tick);
+/*	while ((!list_empty (&sleep_list)) && (((struct sleep_tuple *)list_entry(list_tail(&sleep_list), struct sleep_tuple, elem))->wakeup_tick <=timer_ticks()+1)){
+		struct sleep_tuple* tuple = list_entry(list_pop_back(&sleep_list), struct sleep_tuple, elem);
+		list_push_back(&ready_list, &tuple->thread->elem);
+		printf("current_tick: %lld, wakeup_tick:%lld`\n", timer_ticks(), tuple->wakeup_tick);
+		thread_unblock(tuple->thread);
+	}*/
 
 	// 현재 시간이랑 깨울 시간 체크하고 깨울 거 있으면 깨우기
 	// 리스트 
@@ -157,6 +179,29 @@ thread_tick (void) {
 	/* Enforce preemption. */
 	if (++thread_ticks >= TIME_SLICE)
 		intr_yield_on_return ();
+}
+
+void
+thread_sleep (int64_t wakeup_tick, struct thread* thread) {
+
+	printf("recieved par1:%lld, par2: %ld\n", wakeup_tick, (long long int)thread);
+
+	bool sleep_tuple_less (const struct list_elem *a, const struct list_elem *b, void* aux UNUSED){
+		return list_entry (a, struct sleep_tuple, elem)->wakeup_tick < list_entry (b, struct sleep_tuple, elem)->wakeup_tick;
+	}
+	struct sleep_tuple tuple;
+	tuple.wakeup_tick = wakeup_tick;
+	tuple.thread = thread;
+	list_insert_ordered(&sleep_list, &tuple.elem, &sleep_tuple_less, NULL);
+	printf("after par1:%lld, par2: %ld\n", list_entry(&tuple.elem, struct sleep_tuple, elem)->wakeup_tick, (long long int)tuple.thread);
+
+	struct list_elem* iter = list_front(&sleep_list);
+	printf("iteratkng: ");
+	while( iter != list_end(&sleep_list) ){
+		printf("%lld ", list_entry(iter, struct sleep_tuple, elem)->wakeup_tick);
+		iter=list_next(iter);
+	}
+	printf("\n");
 }
 
 /* Prints thread statistics. */
