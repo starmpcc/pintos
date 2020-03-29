@@ -113,7 +113,7 @@ test_sleep (int thread_cnt, int iterations)
       new_prod = ++t->iterations * t->duration;
         
       msg ("thread %d: duration=%d, iteration=%d, product=%d",
-           t->id, t->duration, t->iterations, new_prod);sleeper
+           t->id, t->duration, t->iterations, new_prod);
       
       if (new_prod >= product)
         product = new_prod;

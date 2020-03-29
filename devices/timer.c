@@ -29,7 +29,7 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
-
+static struct list sleep_list;
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -44,6 +44,8 @@ timer_init (void) {
 	outb (0x40, count >> 8);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+	list_init(&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -92,10 +94,21 @@ timer_elapsed (int64_t then) {
 void
 timer_sleep (int64_t ticks) {
 	enum intr_level old_level = intr_disable ();
+	int64_t wakeup_tick = timer_ticks ()+ticks;
 
 
-	int64_t start = timer_ticks ();
-	thread_sleep(ticks+start, thread_current());
+	bool sleep_tuple_less (const struct list_elem *a, const struct list_elem *b, void* aux UNUSED){
+		int64_t wakeup_a = list_entry (a, struct sleep_tuple, elem)->wakeup_tick;
+		int64_t wakeup_b = list_entry (b, struct sleep_tuple, elem)->wakeup_tick;
+		//printf("compare ticks a: %lld b: %lld\n",wakeup_a, wakeup_b);
+		return  wakeup_a < wakeup_b; 
+	}
+	struct sleep_tuple tuple;
+	tuple.wakeup_tick = wakeup_tick;
+	tuple.thread = thread_current();
+	list_insert_ordered(&sleep_list, &tuple.elem, sleep_tuple_less, NULL);
+
+
 	// 현재 스레드 깨울 시간 계산해서 스레드 구조체에 추가하고 기다리기 
 	// sleep list 가 정렬 상태 유지하게 삽입
 	//while 지우고 yield
@@ -138,6 +151,19 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
+	//printf("ticks:%lld\n", ticks );
+	while (!list_empty(&sleep_list)){
+		struct sleep_tuple* tuple = list_entry(list_front(&sleep_list), struct sleep_tuple, elem); 
+		//printf("wakeup-tick:%lld\n", tuple->wakeup_tick);
+		if (tuple->wakeup_tick<=timer_ticks()){
+			list_pop_front(&sleep_list);
+		//	printf("unblock tid: %d\n", tuple->thread->tid);
+			thread_unblock(tuple->thread);
+		}
+		else break;
+	}
+
+
 	thread_tick ();
 }
 
