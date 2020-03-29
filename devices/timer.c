@@ -100,13 +100,12 @@ timer_sleep (int64_t ticks) {
 	bool sleep_tuple_less (const struct list_elem *a, const struct list_elem *b, void* aux UNUSED){
 		int64_t wakeup_a = list_entry (a, struct sleep_tuple, elem)->wakeup_tick;
 		int64_t wakeup_b = list_entry (b, struct sleep_tuple, elem)->wakeup_tick;
-		//printf("compare ticks a: %lld b: %lld\n",wakeup_a, wakeup_b);
 		return  wakeup_a < wakeup_b; 
 	}
 	struct sleep_tuple tuple;
 	tuple.wakeup_tick = wakeup_tick;
-	tuple.thread = thread_current();
-	list_insert_ordered(&sleep_list, &tuple.elem, sleep_tuple_less, NULL);
+	tuple.thread = thread_current ();
+	list_insert_ordered (&sleep_list, &tuple.elem, sleep_tuple_less, NULL);
 
 
 	// 현재 스레드 깨울 시간 계산해서 스레드 구조체에 추가하고 기다리기 
@@ -114,12 +113,6 @@ timer_sleep (int64_t ticks) {
 	//while 지우고 yield
 	thread_block ();
 	intr_set_level (old_level);
-//	thread_yield_sleep();
-
-
-//	while (timer_elapsed (start) < ticks)
-//		thread_yield ();
-		//resume point
 
 }
 
@@ -151,19 +144,14 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
-	//printf("ticks:%lld\n", ticks );
 	while (!list_empty(&sleep_list)){
-		struct sleep_tuple* tuple = list_entry(list_front(&sleep_list), struct sleep_tuple, elem); 
-		//printf("wakeup-tick:%lld\n", tuple->wakeup_tick);
-		if (tuple->wakeup_tick<=timer_ticks()){
-			list_pop_front(&sleep_list);
-		//	printf("unblock tid: %d\n", tuple->thread->tid);
-			thread_unblock(tuple->thread);
+		struct sleep_tuple* tuple = list_entry (list_front (&sleep_list), struct sleep_tuple, elem); 
+		if (tuple->wakeup_tick <= timer_ticks ()){
+			list_pop_front (&sleep_list);
+			thread_unblock (tuple->thread);
 		}
 		else break;
 	}
-
-
 	thread_tick ();
 }
 

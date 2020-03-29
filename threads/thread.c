@@ -28,7 +28,6 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
-//static struct list sleep_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -164,24 +163,7 @@ thread_tick (void) {
 		intr_yield_on_return ();
 }
 
-/*void
-thread_sleep (int64_t wakeup_tick, struct thread* thread) {
 
-	printf("sleep thread %d , wakeup tick is %lld, current tick is %lld\n", thread->tid, wakeup_tick, timer_ticks());
-
-
-	iterate_list(&sleep_list);
-}
-
-void iterate_list(struct list *list){
-	printf("iterate list: ");
-	for (struct list_elem *e = list_begin (list); e != list_end (list); e = list_next (e)){
-		printf("%d(%lld) ", list_entry(e,struct sleep_tuple, elem)->thread->tid,list_entry(e,struct sleep_tuple, elem)->wakeup_tick );
-	}
-
-	printf("\n");
-}
-*/
 /* Prints thread statistics. */
 void
 thread_print_stats (void) {
