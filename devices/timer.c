@@ -45,6 +45,7 @@ timer_init (void) {
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 
+	//sleep_list를 초기화함
 	list_init(&sleep_list);
 }
 
@@ -90,12 +91,16 @@ timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
-/* Suspends execution for approximately TICKS timer ticks. */
+/*	Suspends execution for approximately TICKS timer ticks. 
+	sleep이 호출되었을때 사용되는 함수
+	스레드가 언제 깨어나야 할 지 계산한 후, sleep_list에 일찍 일어날 프로그램이 앞에 오도록 삽입함
+	삽입 후 스레드를 block함.
+	중간에 interrupt되는 것을 막기 위해 intr을 처음에 비활성화, 끝난 후 활성화함
+*/ 
 void
 timer_sleep (int64_t ticks) {
 	enum intr_level old_level = intr_disable ();
 	int64_t wakeup_tick = timer_ticks ()+ticks;
-
 
 	bool sleep_tuple_less (const struct list_elem *a, const struct list_elem *b, void* aux UNUSED){
 		int64_t wakeup_a = list_entry (a, struct sleep_tuple, elem)->wakeup_tick;
@@ -106,11 +111,6 @@ timer_sleep (int64_t ticks) {
 	tuple.wakeup_tick = wakeup_tick;
 	tuple.thread = thread_current ();
 	list_insert_ordered (&sleep_list, &tuple.elem, sleep_tuple_less, NULL);
-
-
-	// 현재 스레드 깨울 시간 계산해서 스레드 구조체에 추가하고 기다리기 
-	// sleep list 가 정렬 상태 유지하게 삽입
-	//while 지우고 yield
 	thread_block ();
 	intr_set_level (old_level);
 
@@ -140,7 +140,12 @@ timer_print_stats (void) {
 	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
-/* Timer interrupt handler. */
+/*	Timer interrupt handler. 
+	타이머 인터럽트 핸들러
+	시스템 틱을 계산함
+	이후 현재 틱에서 깨어나야 할 스레드가 있는지 확인.
+	있다면, 같은 틱에 깨어나야 할 스레드를 모두 sleep_list에서 제거 후 unblock해줌.	
+*/
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;

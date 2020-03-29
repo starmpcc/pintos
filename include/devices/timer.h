@@ -1,8 +1,9 @@
 #ifndef DEVICES_TIMER_H
-#define DEVICES_TIMER_H
+#define DEVICES_TIMER_He
 
 #include <round.h>
 #include <stdint.h>
+//list를 사용하기 위해서 추가함.
 #include <list.h>
 
 
@@ -22,9 +23,16 @@ void timer_nsleep (int64_t nanoseconds);
 
 void timer_print_stats (void);
 
+/*
+	sleep tuple
+	스레드가 언제 깨어나야 하는지에 관한 정보를 저장함.
+*/
 struct sleep_tuple {
+	// 스레드가 깨어날 시간
 	int64_t wakeup_tick;
+	//sleep 상태인 스레드
 	struct thread* thread;
+	// list에 저장하기 위한 elem
 	struct list_elem elem;
 };
 
