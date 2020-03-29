@@ -1,5 +1,5 @@
 #ifndef DEVICES_TIMER_H
-#define DEVICES_TIMER_He
+#define DEVICES_TIMER_H
 
 #include <round.h>
 #include <stdint.h>
