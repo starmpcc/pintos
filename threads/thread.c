@@ -222,6 +222,10 @@ thread_create (const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock (t);
 
+	/* Yield running thread to apply possible priority change
+	 * due to newly created thread. */
+	thread_yield ();
+
 	return tid;
 }
 
