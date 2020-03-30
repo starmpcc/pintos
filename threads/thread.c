@@ -28,6 +28,7 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+static struct priority_bucket priority_buckets[NUM_PRI];
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -82,6 +83,7 @@ static int fp_div (int x, int y);
  * somewhere in the middle, this locates the curent thread. */
 #define running_thread() ((struct thread *) (pg_round_down (rrsp ())))
 
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
 
 // Global descriptor table for the thread_start.
 // Because the gdt will be setup after the thread_init, we should
@@ -104,6 +106,7 @@ static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
 void
 thread_init (void) {
 	ASSERT (intr_get_level () == INTR_OFF);
+	int i;
 
 	/* Reload the temporal gdt for the kernel
 	 * This gdt does not include the user context.
@@ -118,6 +121,8 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
+	for (i = 0; i < NUM_PRI; i++)
+		list_init (&priority_buckets[i].bucket);
 
 
 	/* Set up a thread structure for the running thread. */
@@ -223,6 +228,10 @@ thread_create (const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock (t);
 
+	/* Yield running thread to apply possible priority change
+	 * due to newly created thread. */
+	thread_yield ();
+
 	return tid;
 }
 
@@ -256,7 +265,7 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	bucket_push (t);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -319,7 +328,7 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		bucket_push (curr);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -327,13 +336,18 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
+	int old_priority = thread_current ()->priority;
 	thread_current ()->priority = new_priority;
+	if (old_priority > new_priority)
+		// Lowering priority requires immediate yield
+		thread_yield ();
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
-	return thread_current ()->priority;
+	struct thread *t = thread_current ();
+	return MAX(t->priority, t->donated_priority);
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -472,6 +486,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->donated_priority = 0;
 	t->magic = THREAD_MAGIC;
 }
 
@@ -482,11 +497,18 @@ init_thread (struct thread *t, const char *name, int priority) {
    idle_thread. */
 static struct thread *
 next_thread_to_run (void) {
-	// 2  구현 포인트 결정 포인트 
 	if (list_empty (&ready_list))
 		return idle_thread;
 	else
-		return list_entry (list_pop_front (&ready_list), struct thread, elem);
+	{
+		// Find highest priority bucket from ready_list
+		//  and pop first and remove empty bucket if necessary
+		struct priority_bucket* highest_priority_bucket = list_entry (list_front (&ready_list), struct priority_bucket, elem);
+		ASSERT (!list_empty (&highest_priority_bucket->bucket));
+		struct thread *t = list_entry (list_front (&highest_priority_bucket->bucket), struct thread, elem);
+		bucket_remove (t);
+		return t;
+	}
 }
 
 /* Use iretq to launch the thread */
@@ -515,6 +537,34 @@ do_iret (struct intr_frame *tf) {
 			"addq $32, %%rsp\n"
 			"iretq"
 			: : "g" ((uint64_t) tf) : "memory");
+}
+
+void
+bucket_push (struct thread *t) {
+	int priority = MAX(t->priority, t->donated_priority);
+	struct priority_bucket* bucket = &priority_buckets[priority];
+
+	bool array_pointer_less (const struct list_elem *a, const struct list_elem *b, void* aux UNUSED) {
+		struct priority_bucket* a_pointer = list_entry (a, struct priority_bucket, elem);
+		struct priority_bucket* b_pointer = list_entry (b, struct priority_bucket, elem);
+		// Decreasing order of array element pointer of buckets
+		return a_pointer > b_pointer;
+	}
+
+	if (list_empty (&bucket->bucket))
+		// ordered insert ready_list
+		list_insert_ordered (&ready_list, &bucket->elem, array_pointer_less, NULL);
+
+	list_push_back (&bucket->bucket, &t->elem);
+}
+
+void
+bucket_remove (struct thread *t) {
+	int priority = MAX(t->priority, t->donated_priority);
+	struct priority_bucket* bucket = &priority_buckets[priority];
+	list_remove (&t->elem);
+	if (list_empty (&bucket->bucket))
+		list_remove (&bucket->elem);
 }
 
 /* Switching the thread by activating the new thread's page

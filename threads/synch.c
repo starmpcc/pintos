@@ -32,6 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -189,9 +191,23 @@ lock_acquire (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
-//		thread_current->priority
-//		holder priority 중 홀더거를 둘중에 맥스로 세팅
-//      해당 링크드에서 빼서 새 링크리스트 맨 뒤에 넣기
+	if (lock->holder != NULL)
+	{
+		struct thread* donee = lock->holder;
+		int donee_priority = MAX(donee->priority, donee->donated_priority);
+		int doner_priority = thread_get_priority ();
+		printf("doner pri: %d, donee pri: %d\n", doner_priority, donee_priority);
+		if (donee_priority < doner_priority)
+		{
+			printf("donated %d priority to donee %s\n",doner_priority, donee->name);
+			bucket_remove(donee);
+			// holder priority 중 홀더거를 둘중에 맥스로 세팅
+			donee->donated_priority = doner_priority;
+			// 해당 링크드에서 빼서 새 링크리스트 맨 뒤에 넣기
+			bucket_push(donee);
+			// TODO(chanil): maybe required using lock on priority_buckets manipulation?
+		}
+	}
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
 }
@@ -228,6 +244,14 @@ lock_release (struct lock *lock) {
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
+	// TODO(chanil): current thread donation reset
+	/*int old_priority = thread_get_priority ();*/
+	/*thread_set_donated_priority (0);*/
+	/*int new_priority = thread_get_priority ();*/
+	/*if (new_priority != old_priority)*/
+	/*{*/
+	/*        // TODO(chanil): if donation reset change priorirty, then change ready list to match with changed priority for queueing? NO! at thread_yield, push to priority bucket, not ready_list.*/
+	/*}*/
 }
 
 /* Returns true if the current thread holds LOCK, false
