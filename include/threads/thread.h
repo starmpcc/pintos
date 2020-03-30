@@ -23,6 +23,7 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+#define NUM_PRI PRI_MAX-PRI_MIN+1
 
 /* A kernel thread or user process.
  *
@@ -87,6 +88,7 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
+	int donated_priority;
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -101,6 +103,10 @@ struct thread {
 	unsigned magic;                     /* Detects stack overflow. */
 };
 
+struct priority_bucket {
+	struct list bucket;
+	struct list_elem elem;
+};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -137,4 +143,8 @@ int thread_get_load_avg (void);
 void do_iret (struct intr_frame *tf);
 
 void thread_sleep (int64_t wakeup_tick, struct thread* thread);
+
+void bucket_push (struct thread *);
+void bucket_remove (struct thread *);
+
 #endif /* threads/thread.h */
