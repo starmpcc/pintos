@@ -96,6 +96,12 @@ struct thread {
 	uint64_t *pml4;                     /* Page map level 4 */
 #endif
 
+//for 1-3:Advanced Scheduler
+// need init
+	int nice;
+	int recent_cpu;
+	int load_avg;
+	
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */

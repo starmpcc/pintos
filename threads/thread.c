@@ -64,7 +64,13 @@ static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
 
-//static void iterate_list(struct list* list);
+static int fp_tofp (int n);
+static int fp_toint_lound_zero (int x);
+static int fp_toint_lound_near (int x);
+static int fp_add (int x, int y);
+static int fp_sub (int x, int y);
+static int fp_mul (int x, int y);
+static int fp_div (int x, int y);
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -334,27 +340,75 @@ thread_get_priority (void) {
 void
 thread_set_nice (int nice UNUSED) {
 	/* TODO: Your implementation goes here */
+	//nice는 int형 유지
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	//각각 FP 59/60, 1/60
+	//load_avg의 int형 100배 값을 반환
+	int c1 = fp_tofp(59) / 60;
+	int c2 = fp_tofp(1) / 60;
+
+	//load_avg는 float상태 유지할 것	
+	//ready_thread는 따로 구현해줘야 함. 지금 구현에서는 float
+	int load_avg_old = thread_current()->load_avg;
+	int ready_threads = list_size(&ready_list) + (thread_current() == idle_thread); 
+	int load_avg = fp_mul (c1, load_avg_old) + fp_mul (c2, ready_threads);
+	thread_current ()->load_avg = load_avg;
+	return fp_toint_lound_near (load_avg * 100);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	// recent cpu도 float 로 유지
+	struct thread* t = thread_current ();
+	int recent_cpu = fp_div (2 * t->load_avg, 2 * t->load_avg + fp_tofp(1));
+	recent_cpu = fp_mul (recent_cpu, t->recent_cpu) + fp_tofp (t->nice);
+	t->recent_cpu = recent_cpu;
+	return fp_toint_lound_near (recent_cpu * 100);
+}
+
+
+//fixed-point artimetics
+//be careful: FP끼리만 계산할 것!
+// add, sub는 그냥 fp/int끼리 맞춰서 해도 됨
+// mul/sub는 fp*/ int일 경우 그냥 계산 가능
+# define FP  (1<<14) 
+int fp_tofp (int n){
+	return n*FP;
+}
+int fp_toint_lound_zero (int x){
+	return x/FP;
+}
+int fp_toint_lound_near (int x){
+	if (x>0){
+		return (x + FP / 2) / FP;
+	}
+	else return (x - FP / 2) / FP;
+}
+int fp_add (int x, int y){
+	return x+y;
+}
+int fp_sub (int x, int y){
+	return x-y;
+}
+int fp_mul (int x, int y){
+	return ((int64_t) x) * y /FP;
+}
+int fp_div (int x, int y){
+	return ((int64_t) x) * FP/ y;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
