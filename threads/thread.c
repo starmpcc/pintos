@@ -76,9 +76,12 @@ static int fp_div (int x, int y);
 static int thread_active = 0;
 static int schedule_count = 0;
 static void thread_calc_recent_cpu(struct thread* t);
-static void thread_calc_load_avg (struct thread* t);
+static void thread_calc_load_avg (void);
 static void thread_calc_priority(struct thread* t);
 static struct list blocked_list;
+static int load_avg = 0;
+//var mlfqs to make exception when create new thread
+static bool new_thread=0;
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -159,8 +162,11 @@ thread_start (void) {
    Thus, this function runs in an external interrupt context. */
 void
 thread_tick (void) {
+	printf("%d\n",schedule_count);
 	struct thread *t = thread_current ();
-	if (t!=idle_thread && t->status !=THREAD_BLOCKED) t->recent_cpu+=fp_tofp(1);
+	if (t!=idle_thread && t->status !=THREAD_BLOCKED) {
+		t->recent_cpu+=fp_tofp(1);
+	}
 	/* Update statistics. */
 	if (t == idle_thread)
 		idle_ticks++;
@@ -234,13 +240,17 @@ thread_create (const char *name, int priority,
 		if (thread_current()!=idle_thread){
 			t->nice = thread_current()->nice;
 		}
+		thread_active++;
+		new_thread=1;
 	} 
+
 	/* Add to run queue. */
 	thread_unblock (t);
 
 	/* Yield running thread to apply possible priority change
 	 * due to newly created thread. */
 	thread_yield ();
+
 
 	return tid;
 }
@@ -376,9 +386,10 @@ void
 thread_set_nice (int nice UNUSED) {
 	/* TODO: Your implementation goes here */
 	//nice는 int형 유지
+	//계산을 지금? 아님 스케줄 호출?
 	struct thread* t = thread_current();
 	t->nice = nice;
-	thread_calc_load_avg(t);
+	thread_calc_load_avg();
 	thread_calc_recent_cpu(t);
 	thread_calc_priority(t);
 }
@@ -395,20 +406,19 @@ int
 thread_get_load_avg (void) {
 	/* TODO: Your implementation goes here */
 	//load_avg의 int형 100배 값을 반환
-	return fp_toint_lound_near (thread_current()->load_avg * 100);
+	return fp_toint_lound_near (load_avg * 100);
 }
 
 void
-thread_calc_load_avg (struct thread * t){
+thread_calc_load_avg (void){
 	//각각 FP 59/60, 1/60
 	int c1 = fp_tofp(59) / 60;
 	int c2 = fp_tofp(1) / 60;
 
 	//load_avg는 float상태 유지할 것	
-	int load_avg_old = t->load_avg;
-	int ready_threads = thread_active + (running_thread() != idle_thread); 
-	int load_avg = fp_mul (c1, load_avg_old) + fp_mul (c2, ready_threads);
-	t->load_avg = load_avg;
+	int load_avg_old = load_avg;
+	int ready_threads = thread_active + (running_thread() != idle_thread); \
+	load_avg= fp_mul (c1, load_avg_old) + c2 * ready_threads;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -419,10 +429,11 @@ thread_get_recent_cpu (void) {
 	return fp_toint_lound_near (thread_current()->recent_cpu * 100);
 }
 
-void thread_calc_recent_cpu(struct thread* t){
-	int recent_cpu = fp_div (2 * t->load_avg, 2 * t->load_avg + fp_tofp(1));
-	recent_cpu = fp_mul (recent_cpu, t->recent_cpu) + fp_tofp (t->nice);
-	t->recent_cpu = recent_cpu;
+void
+thread_calc_recent_cpu(struct thread* t){
+	int tmp = fp_div (2 * load_avg, 2 * load_avg + fp_tofp(1));
+	tmp = fp_mul (tmp, t->recent_cpu) + fp_tofp (t->nice);
+	t->recent_cpu = tmp;
 }
 
 
@@ -525,8 +536,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	if (thread_mlfqs){
 		t->nice=0;
 		t->recent_cpu=0;
-		t->load_avg=0;
 		t->schedule_count = 0;
+		t->priority = PRI_DEFAULT;
 	}
 
 }
@@ -584,7 +595,6 @@ void
 bucket_push (struct thread *t) {
 	int priority = MAX(t->priority, t->donated_priority);
 	struct priority_bucket* bucket = &priority_buckets[priority];
-	//printf("bucket push:%d(%d)\n", t->tid, priority);
 
 	bool array_pointer_less (const struct list_elem *a, const struct list_elem *b, void* aux UNUSED) {
 		struct priority_bucket* a_pointer = list_entry (a, struct priority_bucket, elem);
@@ -593,19 +603,21 @@ bucket_push (struct thread *t) {
 		return a_pointer > b_pointer;
 	}
 
-	if (thread_mlfqs && t->schedule_count!=0){
-		//unblock 하는 경우가 생겼을 때랑 언락/깨울 때므로 생겼을 때 예외처리해줘야됨
-
-		list_remove(&t->elem);
+	//block_list 안에 들어있던 걸 꺼내줌.
+	//문제발생! 처음 생성했을 때만 무시하도록
+	if (thread_mlfqs){
+		if (new_thread==1) new_thread=1;
+		else list_remove(&t->elem);
 	}
+
 
 	if (list_empty (&bucket->bucket))
 		// ordered insert ready_list
+		//실행할때 집어늫는 경우는?
 		list_insert_ordered (&ready_list, &bucket->elem, array_pointer_less, NULL);
 
 	list_push_back (&bucket->bucket, &t->elem);
 
-	thread_active++;
 }
 
 void
@@ -617,9 +629,9 @@ bucket_remove (struct thread *t) {
 		list_remove (&bucket->elem);
 	//mlfqs 구현하기 위해서는 리무브된 스레드도 접근할 수 있어야 함.
 	if (thread_mlfqs){
-		list_push_back(&blocked_list, &t->elem);
+		//실행할때도 버킷에서 제거함/블락만 푸쉬하도록
+		if (t->status==THREAD_BLOCKED) list_push_back(&blocked_list, &(t->elem));
 	}
-	thread_active--;
 }
 
 /* Switching the thread by activating the new thread's page
@@ -712,6 +724,43 @@ static void
 schedule (void) {
 	//running thread를 thread_current 대신 사용해야 됨 (block고려를 위해서)
 	struct thread *curr = running_thread ();
+
+		//여기서 전체 재계산해주기!
+	//schedule_count: 스케줄이 이루어진 횟수, 스레드의 중복 계산을 막기 위해 스레드마다 할당함.
+	if (thread_mlfqs && thread_active > 0){
+		schedule_count++;
+		thread_calc_load_avg();
+		if (!list_empty(&blocked_list)){
+			for (struct list_elem* i = list_front(&blocked_list); i!=list_back(&blocked_list); i = list_next(i) ){
+				//이게 스레드가 아님?
+				struct thread* t = list_entry(i, struct thread, elem);
+				ASSERT(!is_thread(t));
+				thread_calc_recent_cpu(t);
+				thread_calc_priority(t);
+				t->schedule_count=schedule_count;
+			}
+		}
+	//	ASSERT(!list_empty(&ready_list));
+		if (!list_empty(&ready_list)){
+			for (struct list_elem* i = list_front(&ready_list); i!=list_back(&ready_list); i = list_next(i) ){
+				struct list* l = &list_entry(i, struct priority_bucket, elem)->bucket;
+				ASSERT(!list_empty(l));
+				for (struct list_elem* j = list_front (l); j != list_back(l); j = list_next(j)){
+					struct thread* t = list_entry(j, struct thread, elem);
+					ASSERT(!is_thread(t));
+					if (t->schedule_count != schedule_count){
+						ASSERT(0);
+						bucket_remove(t);
+						thread_calc_recent_cpu(t);
+						thread_calc_priority(t);
+						bucket_push(t);
+						t->schedule_count = schedule_count;
+					}
+				}
+			}
+		}
+	}
+
 	struct thread *next = next_thread_to_run ();
 
 	ASSERT (intr_get_level () == INTR_OFF);
@@ -727,33 +776,6 @@ schedule (void) {
 	/* Activate the new address space. */
 	process_activate (next);
 #endif
-	//여기서 전체 재계산해주기!
-	//schedule_count: 스케줄이 이루어진 횟수, 스레드의 중복 계산을 막기 위해 스레드마다 할당함.
-	if (thread_mlfqs && thread_active >1){
-		schedule_count++;
-		//printf("%d th schedule done \n", schedule_count);
-		for (struct list_elem* i = list_begin(&blocked_list); i!=list_end(&blocked_list); i = list_next(i) ){
-			struct thread* t = list_entry(i, struct thread, elem);
-			thread_calc_load_avg(t);
-			thread_calc_recent_cpu(t);
-			thread_calc_priority(t);
-		}
-		for (struct list_elem* i = list_begin(&ready_list); i!=list_end(&ready_list); i = list_next(i) ){
-			struct list l = list_entry(i, struct priority_bucket, elem)->bucket;
-			for (struct list_elem* j = list_begin (&l); j != list_end(&l); j = list_next(j)){
-				struct thread* t = list_entry(j, struct thread, elem);
-
-				if (t->schedule_count != schedule_count){
-					bucket_remove(t);
-					thread_calc_load_avg(t);
-					thread_calc_recent_cpu(t);
-					thread_calc_priority(t);
-					bucket_push(t);
-					t->schedule_count = schedule_count;
-				}
-			}
-		}
-	}
 
 	if (curr != next) {
 		/* If the thread we switched from is dying, destroy its struct
@@ -766,6 +788,8 @@ schedule (void) {
 		if (curr && curr->status == THREAD_DYING && curr != initial_thread) {
 			ASSERT (curr != next);
 			list_push_back (&destruction_req, &curr->elem);
+
+			thread_active--;
 		}
 
 		/* Before switching the thread, we first save the information

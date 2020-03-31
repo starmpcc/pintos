@@ -102,7 +102,6 @@ struct thread {
 // need init
 	int nice;
 	int recent_cpu;
-	int load_avg;
 	int schedule_count;
 
 	/* Owned by thread.c. */
