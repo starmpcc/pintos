@@ -88,7 +88,6 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-	int donated_priority;
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -103,7 +102,9 @@ struct thread {
 	int nice;
 	int recent_cpu;
 	int load_avg;
-	
+
+	struct list acquired_locks;
+
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
@@ -138,6 +139,7 @@ const char *thread_name (void);
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
+int thread_get_priority_of (struct thread *);
 int thread_get_priority (void);
 void thread_set_priority (int);
 
