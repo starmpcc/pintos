@@ -32,7 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
-#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+/* Auxiliary comparator for sorted insert to acquired_locks. */
+static bool lock_priority_more (const struct list_elem *, const struct list_elem *, void*);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -112,8 +113,12 @@ sema_up (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	{
+		// More comparator + list_min => maximum element
+		struct list_elem *highest = list_min (&sema->waiters, lock_priority_more, NULL);
+		list_remove (highest);
+		thread_unblock (list_entry (highest, struct thread, elem));
+	}
 	sema->value++;
 	intr_set_level (old_level);
 }
@@ -174,6 +179,7 @@ lock_init (struct lock *lock) {
 
 	lock->holder = NULL;
 	sema_init (&lock->semaphore, 1);
+	lock->max_donated_priority = 0;
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -194,22 +200,29 @@ lock_acquire (struct lock *lock) {
 	if (lock->holder != NULL)
 	{
 		struct thread* donee = lock->holder;
-		int donee_priority = MAX(donee->priority, donee->donated_priority);
+		int donee_priority = thread_get_priority_of (donee);
 		int doner_priority = thread_get_priority ();
-		printf("doner pri: %d, donee pri: %d\n", doner_priority, donee_priority);
-		if (donee_priority < doner_priority)
+
+		if (doner_priority > lock->max_donated_priority)
 		{
-			printf("donated %d priority to donee %s\n",doner_priority, donee->name);
-			bucket_remove(donee);
-			// holder priority 중 홀더거를 둘중에 맥스로 세팅
-			donee->donated_priority = doner_priority;
-			// 해당 링크드에서 빼서 새 링크리스트 맨 뒤에 넣기
-			bucket_push(donee);
-			// TODO(chanil): maybe required using lock on priority_buckets manipulation?
+			// High donated priority trigger priority bucket change of donee thread.
+			bool change_bucket = (doner_priority > donee_priority);
+			if (change_bucket)
+				bucket_remove(donee);
+			// Update lock's max_donated_priority and lock position in owning thread lock list.
+			lock->max_donated_priority = doner_priority;
+			list_remove (&lock->elem);
+			list_insert_ordered (&donee->acquired_locks, &lock->elem, lock_priority_more, NULL);
+			if (change_bucket)
+				bucket_push(donee);
 		}
 	}
 	sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+	struct thread *t = thread_current ();
+	lock->holder = t;
+
+	ASSERT (lock->max_donated_priority == 0);
+	list_push_back (&t->acquired_locks, &lock->elem);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -242,16 +255,26 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
+	// Check priority change while returning donated.
+	int old_priority, new_priority;
+	old_priority = thread_get_priority ();
+
+	// Clear donation around this lock
+	list_remove (&lock->elem); /* From owning thread's acquired_locks */
+	lock->max_donated_priority = 0;
+
+	new_priority = thread_get_priority ();
+
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
-	// TODO(chanil): current thread donation reset
-	/*int old_priority = thread_get_priority ();*/
-	/*thread_set_donated_priority (0);*/
-	/*int new_priority = thread_get_priority ();*/
-	/*if (new_priority != old_priority)*/
-	/*{*/
-	/*        // TODO(chanil): if donation reset change priorirty, then change ready list to match with changed priority for queueing? NO! at thread_yield, push to priority bucket, not ready_list.*/
-	/*}*/
+
+	/* This is running thread which is already poped from ready_list.
+	 * Push to changed priority bucket will be done automatically at thread_yield,
+	 * unless returning donated priority changes thread's actual priority
+	 * which requires immediate thread yield. */
+	if (new_priority < old_priority)
+		// Immediate yield at returning effective donated priority
+		thread_yield ();
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -348,4 +371,13 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 
 	while (!list_empty (&cond->waiters))
 		cond_signal (cond, lock);
+}
+
+static bool
+lock_priority_more (const struct list_elem *a, const struct list_elem *b,
+		void* aux UNUSED) {
+	int a_pri = list_entry (a, struct lock, elem)->max_donated_priority;
+	int b_pri = list_entry (b, struct lock, elem)->max_donated_priority;
+	// Decreasing order of locks' max donated priority
+	return a_pri > b_pri;
 }

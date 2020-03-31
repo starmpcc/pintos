@@ -73,6 +73,7 @@ static int fp_sub (int x, int y);
 static int fp_mul (int x, int y);
 static int fp_div (int x, int y);
 
+
 static int thread_active = 0;
 static int schedule_count = 0;
 static void thread_calc_recent_cpu(struct thread* t);
@@ -82,6 +83,9 @@ static struct list blocked_list;
 static int load_avg = 0;
 //var mlfqs to make exception when create new thread
 static bool new_thread=0;
+/* Auxiliary comparator for sorted insert to ready_list. */
+static bool bucket_pointer_more (const struct list_elem *, const struct list_elem *, void*);
+
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -364,11 +368,24 @@ thread_set_priority (int new_priority) {
 		thread_yield ();
 }
 
+/* Returns the given thread's priority. */
+int
+thread_get_priority_of (struct thread* t) {
+	int donated_priority = 0;
+	if (!list_empty (&t->acquired_locks))
+	{
+		// acquired_locks are sorted descending by max_donated_priority
+		struct lock *lock = list_entry (list_front (&t->acquired_locks), struct lock, elem);
+		ASSERT (lock->holder == t);
+		donated_priority = lock->max_donated_priority;
+	}
+	return MAX(t->priority, donated_priority);
+}
+
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
-	struct thread *t = thread_current ();
-	return MAX(t->priority, t->donated_priority);
+	return thread_get_priority_of (thread_current ());
 }
 
 void
@@ -528,7 +545,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
-	t->donated_priority = 0;
+	list_init (&t->acquired_locks);
 	t->magic = THREAD_MAGIC;
 
 	//for advanced scheduler
@@ -593,7 +610,7 @@ do_iret (struct intr_frame *tf) {
 
 void
 bucket_push (struct thread *t) {
-	int priority = MAX(t->priority, t->donated_priority);
+	int priority = thread_get_priority_of (t);
 	struct priority_bucket* bucket = &priority_buckets[priority];
 
 	bool array_pointer_less (const struct list_elem *a, const struct list_elem *b, void* aux UNUSED) {
@@ -616,13 +633,14 @@ bucket_push (struct thread *t) {
 		//실행할때 집어늫는 경우는?
 		list_insert_ordered (&ready_list, &bucket->elem, array_pointer_less, NULL);
 
+
 	list_push_back (&bucket->bucket, &t->elem);
 
 }
 
 void
 bucket_remove (struct thread *t) {
-	int priority = MAX(t->priority, t->donated_priority);
+	int priority = thread_get_priority_of (t);
 	struct priority_bucket* bucket = &priority_buckets[priority];
 	list_remove (&t->elem);
 	if (list_empty (&bucket->bucket))
@@ -809,4 +827,13 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+static bool
+bucket_pointer_more (const struct list_elem *a,
+		const struct list_elem *b, void* aux UNUSED) {
+	struct priority_bucket* a_pointer = list_entry (a, struct priority_bucket, elem);
+	struct priority_bucket* b_pointer = list_entry (b, struct priority_bucket, elem);
+	// Decreasing order of array element pointer of buckets
+	return a_pointer > b_pointer;
 }
