@@ -103,7 +103,8 @@ struct thread {
 	int nice;
 	int recent_cpu;
 	int load_avg;
-	
+	int schedule_count;
+
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
