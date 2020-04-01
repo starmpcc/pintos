@@ -82,7 +82,6 @@ static void thread_calc_priority(struct thread* t);
 static struct list blocked_list;
 static int load_avg = 0;
 //var mlfqs to make exception when create new thread
-static bool new_thread=0;
 /* Auxiliary comparator for sorted insert to ready_list. */
 static bool bucket_pointer_more (const struct list_elem *, const struct list_elem *, void*);
 
@@ -166,7 +165,6 @@ thread_start (void) {
    Thus, this function runs in an external interrupt context. */
 void
 thread_tick (void) {
-	printf("%d\n",schedule_count);
 	struct thread *t = thread_current ();
 	if (t!=idle_thread && t->status !=THREAD_BLOCKED) {
 		t->recent_cpu+=fp_tofp(1);
@@ -184,6 +182,11 @@ thread_tick (void) {
 	/* Enforce preemption. */
 	if (++thread_ticks >= TIME_SLICE)
 		intr_yield_on_return ();
+	printf("schedulc_count:%d , thread_Ticks: %d, load_avg:%d\n", schedule_count, thread_ticks, load_avg);
+	/*if (!list_empty(&blocked_list)){
+		printf("blocked first recent_cpu: %d", list_entry(list_front(&blocked_list),struct thread, elem) ->recent_cpu);
+	}
+*/
 }
 
 
@@ -245,7 +248,6 @@ thread_create (const char *name, int priority,
 			t->nice = thread_current()->nice;
 		}
 		thread_active++;
-		new_thread=1;
 	} 
 
 	/* Add to run queue. */
@@ -269,7 +271,12 @@ void
 thread_block (void) {
 	ASSERT (!intr_context ());
 	ASSERT (intr_get_level () == INTR_OFF);
-	thread_current ()->status = THREAD_BLOCKED;
+	struct thread* t=  thread_current();
+	t->status = THREAD_BLOCKED;
+	if (thread_mlfqs){
+		t->block_unblock=1;
+		list_push_back(&blocked_list,&t->elem);
+	}
 	schedule ();
 }
 
@@ -289,6 +296,11 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
+
+	if (thread_mlfqs && t->block_unblock==1){
+		list_remove(&t->elem);
+		t->block_unblock=0;
+	}
 	bucket_push (t);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
@@ -344,7 +356,7 @@ thread_exit (void) {
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
-thread_yield (void) {
+	thread_yield (void) {
 	struct thread *curr = thread_current ();
 	enum intr_level old_level;
 
@@ -555,6 +567,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 		t->recent_cpu=0;
 		t->schedule_count = 0;
 		t->priority = PRI_DEFAULT;
+		t->block_unblock=0;
 	}
 
 }
@@ -622,11 +635,14 @@ bucket_push (struct thread *t) {
 
 	//block_list 안에 들어있던 걸 꺼내줌.
 	//문제발생! 처음 생성했을 때만 무시하도록
+	/*
 	if (thread_mlfqs){
-		if (new_thread==1) new_thread=1;
-		else list_remove(&t->elem);
+		if (t->block_unblock) {
+			list_remove (&t->elem);
+			t->block_unblock=0;
+		}
 	}
-
+	*/
 
 	if (list_empty (&bucket->bucket))
 		// ordered insert ready_list
@@ -646,10 +662,12 @@ bucket_remove (struct thread *t) {
 	if (list_empty (&bucket->bucket))
 		list_remove (&bucket->elem);
 	//mlfqs 구현하기 위해서는 리무브된 스레드도 접근할 수 있어야 함.
-	if (thread_mlfqs){
+	/*if (thread_mlfqs){
 		//실행할때도 버킷에서 제거함/블락만 푸쉬하도록
-		if (t->status==THREAD_BLOCKED) list_push_back(&blocked_list, &(t->elem));
-	}
+		if (t->block_unblock==1) list_push_back(&blocked_list, &(t->elem));
+		//구현포인트를 bucket_lock으로 옮기기
+
+	}*/
 }
 
 /* Switching the thread by activating the new thread's page
@@ -745,39 +763,46 @@ schedule (void) {
 
 		//여기서 전체 재계산해주기!
 	//schedule_count: 스케줄이 이루어진 횟수, 스레드의 중복 계산을 막기 위해 스레드마다 할당함.
-	if (thread_mlfqs && thread_active > 0){
-		schedule_count++;
-		thread_calc_load_avg();
-		if (!list_empty(&blocked_list)){
-			for (struct list_elem* i = list_front(&blocked_list); i!=list_back(&blocked_list); i = list_next(i) ){
-				//이게 스레드가 아님?
-				struct thread* t = list_entry(i, struct thread, elem);
-				ASSERT(!is_thread(t));
-				thread_calc_recent_cpu(t);
-				thread_calc_priority(t);
-				t->schedule_count=schedule_count;
+	//현재 실행중인 스레드도 재계산해줘야함.
+	//이 부분이 부팅시에 실행되면 문제가 생김! 부팅을 넘겨야됨
+	if (thread_mlfqs && thread_active>0){
+		if (thread_ticks >=TIME_SLICE){
+			thread_ticks =0;
+			schedule_count++;
+			thread_calc_load_avg();
+			thread_calc_recent_cpu(running_thread());
+			thread_calc_priority(running_thread());
+
+			if (!list_empty(&blocked_list)){
+				for (struct list_elem* i = list_front(&blocked_list); i!=list_end(&blocked_list); i = list_next(i) ){
+					struct thread* t = list_entry(i, struct thread, elem);
+					ASSERT(is_thread(t));
+					thread_calc_recent_cpu(t);
+					thread_calc_priority(t);
+					t->schedule_count=schedule_count;
+				}
 			}
-		}
-	//	ASSERT(!list_empty(&ready_list));
-		if (!list_empty(&ready_list)){
-			for (struct list_elem* i = list_front(&ready_list); i!=list_back(&ready_list); i = list_next(i) ){
-				struct list* l = &list_entry(i, struct priority_bucket, elem)->bucket;
-				ASSERT(!list_empty(l));
-				for (struct list_elem* j = list_front (l); j != list_back(l); j = list_next(j)){
-					struct thread* t = list_entry(j, struct thread, elem);
-					ASSERT(!is_thread(t));
-					if (t->schedule_count != schedule_count){
-						ASSERT(0);
-						bucket_remove(t);
-						thread_calc_recent_cpu(t);
-						thread_calc_priority(t);
-						bucket_push(t);
-						t->schedule_count = schedule_count;
+			if (!list_empty(&ready_list)){
+				for (struct list_elem* i = list_front(&ready_list); i!=list_end(&ready_list); i = list_next(i) ){
+					struct list* l = &list_entry(i, struct priority_bucket, elem)->bucket;
+					ASSERT(!list_empty(l));
+					for (struct list_elem* j = list_front (l); j != list_end(l); j = list_next(j)){
+						struct thread* t = list_entry(j, struct thread, elem);
+						ASSERT(is_thread(t));
+						if (t->schedule_count != schedule_count){
+							ASSERT(t->status == THREAD_READY);
+							bucket_remove(t);
+							thread_calc_recent_cpu(t);
+							thread_calc_priority(t);
+							bucket_push(t);
+							t->schedule_count = schedule_count;
+						}
 					}
 				}
 			}
 		}
 	}
+
 
 	struct thread *next = next_thread_to_run ();
 
@@ -788,7 +813,10 @@ schedule (void) {
 	next->status = THREAD_RUNNING;
 
 	/* Start new time slice. */
-	thread_ticks = 0;
+	if (!thread_mlfqs){
+		thread_ticks = 0;		
+	}
+
 
 #ifdef USERPROG
 	/* Activate the new address space. */

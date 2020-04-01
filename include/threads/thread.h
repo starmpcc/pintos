@@ -105,6 +105,7 @@ struct thread {
 	int schedule_count;
 	int load_avg;
 	struct list acquired_locks;
+	bool block_unblock;
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
