@@ -34,6 +34,7 @@
 
 /* Auxiliary comparator for sorted insert to acquired_locks. */
 static bool lock_priority_more (const struct list_elem *, const struct list_elem *, void*);
+static bool thread_priority_less (const struct list_elem *, const struct list_elem *, void*);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -112,15 +113,16 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-	{
-		// More comparator + list_min => maximum element
-		struct list_elem *highest = list_min (&sema->waiters, lock_priority_more, NULL);
-		list_remove (highest);
-		thread_unblock (list_entry (highest, struct thread, elem));
-	}
 	sema->value++;
 	intr_set_level (old_level);
+
+	if (!list_empty (&sema->waiters))
+	{
+		struct list_elem *highest = list_max (&sema->waiters, thread_priority_less, NULL);
+		list_remove (highest);
+		thread_unblock (list_entry (highest, struct thread, elem));
+		thread_yield ();
+	}
 }
 
 static void sema_test_helper (void *sema_);
@@ -380,4 +382,12 @@ lock_priority_more (const struct list_elem *a, const struct list_elem *b,
 	int b_pri = list_entry (b, struct lock, elem)->max_donated_priority;
 	// Decreasing order of locks' max donated priority
 	return a_pri > b_pri;
+}
+
+static bool
+thread_priority_less (const struct list_elem *a, const struct list_elem *b,
+		void* aux UNUSED) {
+	int a_pri = thread_get_priority_of (list_entry (a, struct thread, elem));
+	int b_pri = thread_get_priority_of (list_entry (b, struct thread, elem));
+	return a_pri < b_pri;
 }
