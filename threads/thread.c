@@ -415,7 +415,7 @@ void
 thread_set_nice (int nice UNUSED) {
 	/* TODO: Your implementation goes here */
 	//nice는 int형 유지
-	//계산을 지금? 아님 스케줄 호출?
+	//계산을 지금? 아님 스케줄 호출? 정할 필요 있음
 	struct thread* t = thread_current();
 	t->nice = nice;
 	thread_calc_load_avg();
@@ -444,7 +444,7 @@ thread_calc_load_avg (void){
 	int c1 = fp_tofp(59) / 60;
 	int c2 = fp_tofp(1) / 60;
 
-	//load_avg는 float상태 유지할 것	
+	//load_avg는 float상태 유지
 	int load_avg_old = load_avg;
 	int ready_threads = thread_active + (running_thread() != idle_thread); \
 	load_avg= fp_mul (c1, load_avg_old) + c2 * ready_threads;
@@ -633,20 +633,8 @@ bucket_push (struct thread *t) {
 		return a_pointer > b_pointer;
 	}
 
-	//block_list 안에 들어있던 걸 꺼내줌.
-	//문제발생! 처음 생성했을 때만 무시하도록
-	/*
-	if (thread_mlfqs){
-		if (t->block_unblock) {
-			list_remove (&t->elem);
-			t->block_unblock=0;
-		}
-	}
-	*/
-
 	if (list_empty (&bucket->bucket))
 		// ordered insert ready_list
-		//실행할때 집어늫는 경우는?
 		list_insert_ordered (&ready_list, &bucket->elem, array_pointer_less, NULL);
 
 
@@ -661,13 +649,7 @@ bucket_remove (struct thread *t) {
 	list_remove (&t->elem);
 	if (list_empty (&bucket->bucket))
 		list_remove (&bucket->elem);
-	//mlfqs 구현하기 위해서는 리무브된 스레드도 접근할 수 있어야 함.
-	/*if (thread_mlfqs){
-		//실행할때도 버킷에서 제거함/블락만 푸쉬하도록
-		if (t->block_unblock==1) list_push_back(&blocked_list, &(t->elem));
-		//구현포인트를 bucket_lock으로 옮기기
 
-	}*/
 }
 
 /* Switching the thread by activating the new thread's page
@@ -761,10 +743,9 @@ schedule (void) {
 	//running thread를 thread_current 대신 사용해야 됨 (block고려를 위해서)
 	struct thread *curr = running_thread ();
 
-		//여기서 전체 재계산해주기!
+	//여기서 전체 재계산해주기!
 	//schedule_count: 스케줄이 이루어진 횟수, 스레드의 중복 계산을 막기 위해 스레드마다 할당함.
 	//현재 실행중인 스레드도 재계산해줘야함.
-	//이 부분이 부팅시에 실행되면 문제가 생김! 부팅을 넘겨야됨
 	if (thread_mlfqs && thread_active>0){
 		if (thread_ticks >=TIME_SLICE){
 			thread_ticks =0;
