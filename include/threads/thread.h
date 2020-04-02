@@ -103,7 +103,8 @@ struct thread {
 	int recent_cpu;
 	int load_avg;
 
-	struct list acquired_locks;
+	struct lock *blocking_lock;         /* Blocking lock for waiter thread */
+	struct list acquired_locks;         /* List of holding locks */
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
