@@ -13,6 +13,7 @@
 #include "intrinsic.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#include "devices/timer.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -170,14 +171,14 @@ thread_start (void) {
    Thus, this function runs in an external interrupt context. */
 void
 thread_tick (void) {
-	struct thread *t = thread_current ();
+	struct thread *curr = thread_current ();
 
-	if (thread_mlfqs){
+	if (thread_mlfqs && thread_active){
 
-		if (load_ticks%100==0){
+		if (timer_ticks()%100==0){
 			thread_calc_load_avg();
-			load_ticks=0;
-			if (t!= idle_thread) thread_calc_recent_cpu(t);
+			//load_ticks=0;
+			if (curr!= idle_thread) thread_calc_recent_cpu(curr);
 			if (!list_empty(&blocked_list)){
 				for (struct list_elem* i = list_front(&blocked_list); i!=list_end(&blocked_list); i = list_next(i) ){
 					struct thread* t = list_entry(i, struct thread, elem);
@@ -200,8 +201,8 @@ thread_tick (void) {
 			}
 		}
 		//여기서 현재 스레드의 우선순위가 낮아질 경우??
-		if (load_ticks %4 == 0 && thread_active >0){
-			if (t!= idle_thread) thread_calc_priority(t);
+		if (timer_ticks()%4 == 0 && thread_active >0){
+			if (curr!= idle_thread) thread_calc_priority(curr);
 			if (!list_empty(&blocked_list)){
 				for (struct list_elem* i = list_front(&blocked_list); i!=list_end(&blocked_list); i = list_next(i) ){
 					struct thread* t = list_entry(i, struct thread, elem);
@@ -231,15 +232,28 @@ thread_tick (void) {
 				}
 			}
 		}	
-		load_ticks++;
-		if(t!=idle_thread && t->status !=THREAD_BLOCKED) {
-			t->recent_cpu+=fp_tofp(1);
-		}
+		/*
+		if (!list_empty(&ready_list)){
+			struct priority_bucket* highest_priority_bucket = list_entry (list_front (&ready_list), struct priority_bucket, elem);
+			ASSERT (!list_empty (&highest_priority_bucket->bucket));
+			struct thread *high = list_entry (list_front (&highest_priority_bucket->bucket), struct thread, elem);
+			if (curr->nice < high->nice) {
+				bucket_remove(high);
+				high->status=THREAD_RUNNING;
+				curr->status=THREAD_READY;
+				bucket_push(curr);
+			}
+		}*/
+		if(curr!=idle_thread){
+			if (curr->status !=THREAD_READY) {
+				curr->recent_cpu+=fp_tofp(1);
+			}
+		} 
 
 	}
 
 	/* Update statistics. */
-	if (t == idle_thread)
+	if (curr == idle_thread)
 		idle_ticks++;
 #ifdef USERPROG
 	else if (t->pml4 != NULL)
@@ -490,7 +504,7 @@ thread_set_nice (int nice UNUSED) {
 		struct priority_bucket* highest_priority_bucket = list_entry (list_front (&ready_list), struct priority_bucket, elem);
 		ASSERT (!list_empty (&highest_priority_bucket->bucket));
 		struct thread *high = list_entry (list_front (&highest_priority_bucket->bucket), struct thread, elem);
-		if (t->nice < high->nice) thread_yield();
+		if (t->priority < high->priority) thread_yield();
 	}
 }
 
