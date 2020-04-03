@@ -116,7 +116,7 @@ test_mlfqs_recent_1 (void)
 
   do 
     {
-      msg ("Sleeping 10 seconds to allow recent_cpu to decay, please wait...  %d", thread_get_recent_cpu());
+      msg ("Sleeping 10 seconds to allow recent_cpu to decay, please wait...");
       start_time = timer_ticks ();
       timer_sleep (DIV_ROUND_UP (start_time, TIMER_FREQ) - start_time
                    + 10 * TIMER_FREQ);
