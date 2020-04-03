@@ -101,8 +101,6 @@ struct thread {
 // need init
 	int nice;
 	int recent_cpu;
-
-	int schedule_count;
 	int load_avg;
 	struct list acquired_locks;
 	bool block_unblock;

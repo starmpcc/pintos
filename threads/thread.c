@@ -13,6 +13,7 @@
 #include "intrinsic.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#include "devices/timer.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -28,7 +29,7 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
-static struct priority_bucket priority_buckets[NUM_PRI];
+static struct priority_bucket* priority_buckets;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -75,7 +76,6 @@ static int fp_div (int x, int y);
 
 
 static int thread_active = 0;
-static int schedule_count = 0;
 static void thread_calc_recent_cpu(struct thread* t);
 static void thread_calc_load_avg (void);
 static void thread_calc_priority(struct thread* t);
@@ -84,8 +84,6 @@ static int load_avg = 0;
 //var mlfqs to make exception when create new thread
 /* Auxiliary comparator for sorted insert to ready_list. */
 static bool bucket_pointer_more (const struct list_elem *, const struct list_elem *, void*);
-
-
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -119,7 +117,7 @@ static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
 void
 thread_init (void) {
 	ASSERT (intr_get_level () == INTR_OFF);
-	int i;
+//	int i;
 
 	/* Reload the temporal gdt for the kernel
 	 * This gdt does not include the user context.
@@ -134,8 +132,9 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
-	for (i = 0; i < NUM_PRI; i++)
+/*	for (i = 0; i < NUM_PRI; i++)
 		list_init (&priority_buckets[i].bucket);
+*/
 	list_init (&blocked_list);
 
 	/* Set up a thread structure for the running thread. */
@@ -150,6 +149,12 @@ thread_init (void) {
 void
 thread_start (void) {
 	/* Create the idle thread. */
+
+// 여기서 한번 활성화 시켜보자
+	priority_buckets = (struct priority_bucket* ) palloc_get_multiple(PAL_ZERO, sizeof(struct priority_bucket)*64);
+	for (int i = 0; i < NUM_PRI; i++)
+		list_init (&priority_buckets[i].bucket);
+
 	struct semaphore idle_started;
 	sema_init (&idle_started, 0);
 	thread_create ("idle", PRI_MIN, idle, &idle_started);
@@ -165,12 +170,90 @@ thread_start (void) {
    Thus, this function runs in an external interrupt context. */
 void
 thread_tick (void) {
-	struct thread *t = thread_current ();
-	if (t!=idle_thread && t->status !=THREAD_BLOCKED) {
-		t->recent_cpu+=fp_tofp(1);
+
+	struct thread *curr = thread_current ();
+
+	if (thread_mlfqs && thread_active){
+
+		if (timer_ticks()%100==0){
+			thread_calc_load_avg();
+			//load_ticks=0;
+			if (curr!= idle_thread) thread_calc_recent_cpu(curr);
+			if (!list_empty(&blocked_list)){
+				for (struct list_elem* i = list_front(&blocked_list); i!=list_end(&blocked_list); i = list_next(i) ){
+					struct thread* t = list_entry(i, struct thread, elem);
+					ASSERT(is_thread(t));
+					thread_calc_recent_cpu(t);
+				}
+			}
+
+			if (!list_empty(&ready_list)){
+				for (struct list_elem* i = list_front(&ready_list); i!=list_end(&ready_list); i = list_next(i) ){
+					struct list* l = &list_entry(i, struct priority_bucket, elem)->bucket;
+					ASSERT(!list_empty(l));
+					for (struct list_elem* j = list_front (l); j != list_end(l); j = list_next(j)){
+						struct thread* t = list_entry(j, struct thread, elem);
+						ASSERT(is_thread(t));
+						thread_calc_recent_cpu(t);
+					}
+				}
+
+			}
+		}
+		//여기서 현재 스레드의 우선순위가 낮아질 경우??
+		if (timer_ticks()%4 == 0 && thread_active >0){
+			if (curr!= idle_thread) thread_calc_priority(curr);
+			if (!list_empty(&blocked_list)){
+				for (struct list_elem* i = list_front(&blocked_list); i!=list_end(&blocked_list); i = list_next(i) ){
+					struct thread* t = list_entry(i, struct thread, elem);
+					ASSERT(is_thread(t));
+					thread_calc_priority(t);
+				}
+			}
+			struct thread* thread_list[64];
+			int k=0;
+			if (!list_empty(&ready_list)){
+				for (struct list_elem* i = list_front(&ready_list); i!=list_end(&ready_list); i = list_next(i) ){
+					struct list* l = &list_entry(i, struct priority_bucket, elem)->bucket;
+					ASSERT(!list_empty(l));
+					for (struct list_elem* j = list_front (l); j != list_end(l); j = list_next(j)){
+						struct thread* t = list_entry(j, struct thread, elem);
+						ASSERT(is_thread(t));
+						thread_list[k] = t;
+					}
+				}
+
+				for (int i=0;i<k;i++){
+						struct thread* t = thread_list[i];
+						ASSERT(t->status == THREAD_READY);
+						bucket_remove(t);
+						thread_calc_priority(t);
+						bucket_push(t);
+				}
+			}
+		}	
+		/*
+		if (!list_empty(&ready_list)){
+			struct priority_bucket* highest_priority_bucket = list_entry (list_front (&ready_list), struct priority_bucket, elem);
+			ASSERT (!list_empty (&highest_priority_bucket->bucket));
+			struct thread *high = list_entry (list_front (&highest_priority_bucket->bucket), struct thread, elem);
+			if (curr->nice < high->nice) {
+				bucket_remove(high);
+				high->status=THREAD_RUNNING;
+				curr->status=THREAD_READY;
+				bucket_push(curr);
+			}
+		}*/
+		if(curr!=idle_thread){
+			if (curr->status !=THREAD_READY) {
+				curr->recent_cpu+=fp_tofp(1);
+			}
+		} 
+
 	}
+
 	/* Update statistics. */
-	if (t == idle_thread)
+	if (curr == idle_thread)
 		idle_ticks++;
 #ifdef USERPROG
 	else if (t->pml4 != NULL)
@@ -182,11 +265,6 @@ thread_tick (void) {
 	/* Enforce preemption. */
 	if (++thread_ticks >= TIME_SLICE)
 		intr_yield_on_return ();
-	printf("schedulc_count:%d , thread_Ticks: %d, load_avg:%d\n", schedule_count, thread_ticks, load_avg);
-	/*if (!list_empty(&blocked_list)){
-		printf("blocked first recent_cpu: %d", list_entry(list_front(&blocked_list),struct thread, elem) ->recent_cpu);
-	}
-*/
 }
 
 
@@ -273,7 +351,8 @@ thread_block (void) {
 	ASSERT (intr_get_level () == INTR_OFF);
 	struct thread* t=  thread_current();
 	t->status = THREAD_BLOCKED;
-	if (thread_mlfqs){
+	if (thread_mlfqs && t!=idle_thread){
+
 		t->block_unblock=1;
 		list_push_back(&blocked_list,&t->elem);
 	}
@@ -297,7 +376,8 @@ thread_unblock (struct thread *t) {
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
 
-	if (thread_mlfqs && t->block_unblock==1){
+
+	if (thread_mlfqs && t->block_unblock==1 && t!=idle_thread){
 		list_remove(&t->elem);
 		t->block_unblock=0;
 	}
@@ -403,7 +483,8 @@ thread_get_priority (void) {
 void
 thread_calc_priority(struct thread* t){
 	//형변환 필요
-	int priority = PRI_MAX - (fp_toint_lound_near(t->recent_cpu)/4) - t->nice*2;
+	int priority = PRI_MAX - (fp_toint_lound_near(t->recent_cpu)/4) - (t->nice*2);
+	//int priority = fp_toint_lound_zero(fp_tofp(PRI_MAX) - t->recent_cpu/4 - fp_tofp(t->nice *2));
 	priority = PRI_MIN < priority ? priority : PRI_MIN;
 	priority = PRI_MAX > priority ? priority : PRI_MAX;
 	t->priority = priority;
@@ -418,9 +499,13 @@ thread_set_nice (int nice UNUSED) {
 	//계산을 지금? 아님 스케줄 호출? 정할 필요 있음
 	struct thread* t = thread_current();
 	t->nice = nice;
-	thread_calc_load_avg();
-	thread_calc_recent_cpu(t);
 	thread_calc_priority(t);
+	if (!list_empty(&ready_list)){
+		struct priority_bucket* highest_priority_bucket = list_entry (list_front (&ready_list), struct priority_bucket, elem);
+		ASSERT (!list_empty (&highest_priority_bucket->bucket));
+		struct thread *high = list_entry (list_front (&highest_priority_bucket->bucket), struct thread, elem);
+		if (t->priority < high->priority) thread_yield();
+	}
 }
 
 /* Returns the current thread's nice value. */
@@ -446,7 +531,7 @@ thread_calc_load_avg (void){
 
 	//load_avg는 float상태 유지
 	int load_avg_old = load_avg;
-	int ready_threads = thread_active + (running_thread() != idle_thread); \
+	int ready_threads = thread_active  - (int) list_size(&blocked_list);
 	load_avg= fp_mul (c1, load_avg_old) + c2 * ready_threads;
 }
 
@@ -565,7 +650,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 	if (thread_mlfqs){
 		t->nice=0;
 		t->recent_cpu=0;
-		t->schedule_count = 0;
 		t->priority = PRI_DEFAULT;
 		t->block_unblock=0;
 	}
@@ -742,49 +826,6 @@ static void
 schedule (void) {
 	//running thread를 thread_current 대신 사용해야 됨 (block고려를 위해서)
 	struct thread *curr = running_thread ();
-
-	//여기서 전체 재계산해주기!
-	//schedule_count: 스케줄이 이루어진 횟수, 스레드의 중복 계산을 막기 위해 스레드마다 할당함.
-	//현재 실행중인 스레드도 재계산해줘야함.
-	if (thread_mlfqs && thread_active>0){
-		if (thread_ticks >=TIME_SLICE){
-			thread_ticks =0;
-			schedule_count++;
-			thread_calc_load_avg();
-			thread_calc_recent_cpu(running_thread());
-			thread_calc_priority(running_thread());
-
-			if (!list_empty(&blocked_list)){
-				for (struct list_elem* i = list_front(&blocked_list); i!=list_end(&blocked_list); i = list_next(i) ){
-					struct thread* t = list_entry(i, struct thread, elem);
-					ASSERT(is_thread(t));
-					thread_calc_recent_cpu(t);
-					thread_calc_priority(t);
-					t->schedule_count=schedule_count;
-				}
-			}
-			if (!list_empty(&ready_list)){
-				for (struct list_elem* i = list_front(&ready_list); i!=list_end(&ready_list); i = list_next(i) ){
-					struct list* l = &list_entry(i, struct priority_bucket, elem)->bucket;
-					ASSERT(!list_empty(l));
-					for (struct list_elem* j = list_front (l); j != list_end(l); j = list_next(j)){
-						struct thread* t = list_entry(j, struct thread, elem);
-						ASSERT(is_thread(t));
-						if (t->schedule_count != schedule_count){
-							ASSERT(t->status == THREAD_READY);
-							bucket_remove(t);
-							thread_calc_recent_cpu(t);
-							thread_calc_priority(t);
-							bucket_push(t);
-							t->schedule_count = schedule_count;
-						}
-					}
-				}
-			}
-		}
-	}
-
-
 	struct thread *next = next_thread_to_run ();
 
 	ASSERT (intr_get_level () == INTR_OFF);
@@ -840,9 +881,11 @@ allocate_tid (void) {
 
 static bool
 bucket_pointer_more (const struct list_elem *a,
+
 		const struct list_elem *b, void* aux UNUSED) {
 	struct priority_bucket* a_pointer = list_entry (a, struct priority_bucket, elem);
 	struct priority_bucket* b_pointer = list_entry (b, struct priority_bucket, elem);
 	// Decreasing order of array element pointer of buckets
 	return a_pointer > b_pointer;
 }
+
