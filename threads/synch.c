@@ -32,8 +32,11 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+static void donate_priority_for(struct lock *);
+
 /* Auxiliary comparator for sorted insert to acquired_locks. */
 static bool lock_priority_more (const struct list_elem *, const struct list_elem *, void*);
+static bool thread_priority_less (const struct list_elem *, const struct list_elem *, void*);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -112,15 +115,16 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-	{
-		// More comparator + list_min => maximum element
-		struct list_elem *highest = list_min (&sema->waiters, lock_priority_more, NULL);
-		list_remove (highest);
-		thread_unblock (list_entry (highest, struct thread, elem));
-	}
 	sema->value++;
 	intr_set_level (old_level);
+
+	if (!list_empty (&sema->waiters))
+	{
+		struct list_elem *highest = list_max (&sema->waiters, thread_priority_less, NULL);
+		list_remove (highest);
+		thread_unblock (list_entry (highest, struct thread, elem));
+		thread_yield ();
+	}
 }
 
 static void sema_test_helper (void *sema_);
@@ -182,6 +186,32 @@ lock_init (struct lock *lock) {
 	lock->max_donated_priority = 0;
 }
 
+/* Recursively donate priority of current thread to related lock holders. */
+static void
+donate_priority_for(struct lock *lock) {
+	struct thread* donee = lock->holder;
+	int donee_priority = thread_get_priority_of (donee);
+	int doner_priority = thread_get_priority ();
+
+	if (doner_priority > lock->max_donated_priority)
+	{
+		// High donated priority trigger priority bucket change of donee thread.
+		bool change_bucket = (doner_priority > donee_priority);
+		if (change_bucket)
+			bucket_remove(donee);
+		// Update lock's max_donated_priority and lock position in owning thread lock list.
+		lock->max_donated_priority = doner_priority;
+		list_remove (&lock->elem);
+		list_insert_ordered (&donee->acquired_locks, &lock->elem, lock_priority_more, NULL);
+		if (change_bucket)
+			bucket_push(donee);
+	}
+
+	// Recursively donate priority
+	if (donee->blocking_lock != NULL)
+		donate_priority_for(donee->blocking_lock);
+}
+
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -197,29 +227,20 @@ lock_acquire (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
+
+	struct thread *t = thread_current ();
+
 	if (lock->holder != NULL)
 	{
-		struct thread* donee = lock->holder;
-		int donee_priority = thread_get_priority_of (donee);
-		int doner_priority = thread_get_priority ();
+		donate_priority_for(lock);
 
-		if (doner_priority > lock->max_donated_priority)
-		{
-			// High donated priority trigger priority bucket change of donee thread.
-			bool change_bucket = (doner_priority > donee_priority);
-			if (change_bucket)
-				bucket_remove(donee);
-			// Update lock's max_donated_priority and lock position in owning thread lock list.
-			lock->max_donated_priority = doner_priority;
-			list_remove (&lock->elem);
-			list_insert_ordered (&donee->acquired_locks, &lock->elem, lock_priority_more, NULL);
-			if (change_bucket)
-				bucket_push(donee);
-		}
+		/* Save blocking lock to waiter thread for priority
+		 * passing through lock->owner. */
+		t->blocking_lock = lock;
 	}
 	sema_down (&lock->semaphore);
-	struct thread *t = thread_current ();
 	lock->holder = t;
+	t->blocking_lock = NULL;
 
 	ASSERT (lock->max_donated_priority == 0);
 	list_push_back (&t->acquired_locks, &lock->elem);
@@ -287,12 +308,6 @@ lock_held_by_current_thread (const struct lock *lock) {
 	return lock->holder == thread_current ();
 }
 
-/* One semaphore in a list. */
-struct semaphore_elem {
-	struct list_elem elem;              /* List element. */
-	struct semaphore semaphore;         /* This semaphore. */
-};
-
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
    code to receive the signal and act upon it. */
@@ -300,7 +315,7 @@ void
 cond_init (struct condition *cond) {
 	ASSERT (cond != NULL);
 
-	list_init (&cond->waiters);
+	sema_init (&cond->semaphore, 0);
 }
 
 /* Atomically releases LOCK and waits for COND to be signaled by
@@ -325,17 +340,13 @@ cond_init (struct condition *cond) {
    we need to sleep. */
 void
 cond_wait (struct condition *cond, struct lock *lock) {
-	struct semaphore_elem waiter;
-
 	ASSERT (cond != NULL);
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	sema_init (&waiter.semaphore, 0);
-	list_push_back (&cond->waiters, &waiter.elem);
 	lock_release (lock);
-	sema_down (&waiter.semaphore);
+	sema_down (&cond->semaphore);
 	lock_acquire (lock);
 }
 
@@ -353,9 +364,8 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+	if (!list_empty (&cond->semaphore.waiters))
+		sema_up (&cond->semaphore);
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -369,7 +379,8 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 	ASSERT (cond != NULL);
 	ASSERT (lock != NULL);
 
-	while (!list_empty (&cond->waiters))
+	struct list_elem* p = list_front (&cond->semaphore.waiters);
+	while (list_next (p) != NULL)
 		cond_signal (cond, lock);
 }
 
@@ -380,4 +391,12 @@ lock_priority_more (const struct list_elem *a, const struct list_elem *b,
 	int b_pri = list_entry (b, struct lock, elem)->max_donated_priority;
 	// Decreasing order of locks' max donated priority
 	return a_pri > b_pri;
+}
+
+static bool
+thread_priority_less (const struct list_elem *a, const struct list_elem *b,
+		void* aux UNUSED) {
+	int a_pri = thread_get_priority_of (list_entry (a, struct thread, elem));
+	int b_pri = thread_get_priority_of (list_entry (b, struct thread, elem));
+	return a_pri < b_pri;
 }
