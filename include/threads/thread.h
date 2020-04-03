@@ -101,13 +101,13 @@ struct thread {
 // need init
 	int nice;
 	int recent_cpu;
-	int load_avg;
 	bool block_unblock;
 	struct lock *blocking_lock;         /* Blocking lock for waiter thread */
 	struct list acquired_locks;         /* List of holding locks */
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
+	struct list_elem elem2;
 };
 
 struct priority_bucket {
