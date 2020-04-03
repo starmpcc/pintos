@@ -232,7 +232,8 @@ lock_acquire (struct lock *lock) {
 
 	if (lock->holder != NULL)
 	{
-		donate_priority_for(lock);
+		if (!thread_mlfqs)
+			donate_priority_for(lock);
 
 		/* Save blocking lock to waiter thread for priority
 		 * passing through lock->owner. */
