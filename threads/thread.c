@@ -252,7 +252,7 @@ thread_tick (void) {
 	if (curr == idle_thread)
 		idle_ticks++;
 #ifdef USERPROG
-	else if (t->pml4 != NULL)
+	else if (curr->pml4 != NULL)
 		user_ticks++;
 #endif
 	else
