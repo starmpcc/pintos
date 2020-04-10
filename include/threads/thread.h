@@ -102,7 +102,7 @@ struct thread {
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
-	struct frame_table frame_table;
+	struct supplemental_page_table spt;
 #endif
 
 //for 1-3:Advanced Scheduler
