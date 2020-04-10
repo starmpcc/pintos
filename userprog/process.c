@@ -155,9 +155,22 @@ error:
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
+/*
+	modified
+	f_name changed to input, like "grep foo bar"
+	then, grep is file name and foo, bar is argv[1], argv[2]
+*/
 int
-process_exec (void *f_name) {
-	char *file_name = f_name;
+process_exec (void *input) {
+	char *argv[7];
+	int argc=0;
+	char *token, *save_ptr;
+	for (token = strtok_r (input, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)){
+		argv[argc]=token;
+		argc++;
+	}
+	argv[argc] = (char*) 0;
+	char *file_name = argv[0];
 	bool success;
 
 	/* We cannot use the intr_frame in the thread structure.
@@ -167,6 +180,10 @@ process_exec (void *f_name) {
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
+
+	//pass rdi and rsi to set stack
+	_if.R.rsi =(uint64_t) &argv[0];
+	_if.R.rdi = argc;
 
 	/* We first kill the current context */
 	process_cleanup ();
@@ -528,17 +545,48 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	return true;
 }
 
+#define WORD_ALIGN(addr) ((uint64_t)addr - ((uint64_t)addr/8)*8)
 /* Create a minimal stack by mapping a zeroed page at the USER_STACK */
+//diffrent with document, argv[0] stored at top of stack
 static bool
 setup_stack (struct intr_frame *if_) {
 	uint8_t *kpage;
 	bool success = false;
 
-	kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+	kpage = palloc_get_page (PAL_USER | PAL_ZERO); //void* VM page start position
 	if (kpage != NULL) {
 		success = install_page (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);
-		if (success)
-			if_->rsp = USER_STACK;
+		if (success){
+
+			char** argv = (char**) &if_->R.rsi; //&argv
+			uint64_t argc = if_->R.rdi; //argc
+			uint64_t stack_pos = USER_STACK;
+			uint64_t args_pos[7];
+			for (int i=0;i<argc;i++){
+				size_t tmplen = strlen(argv[argc]) + 1;
+				stack_pos = stack_pos - tmplen*8;
+				strlcpy((char*) stack_pos, argv[i], 128); //128 is max length of argument
+				args_pos[i] = stack_pos;
+			}
+			stack_pos -= WORD_ALIGN(stack_pos);
+//			stack_pos = (uint8_t[]) 0
+			for (int i = argc;i>=0;i--){
+				stack_pos-=8;
+				if (i==argc) *(char*)(stack_pos) = 0;
+				else{
+					*(char*)stack_pos = args_pos[i];
+				}
+				
+			}
+			stack_pos-=8;
+			// how can I handle void (*) ()?
+			*(uint64_t*) stack_pos = 0;
+			if_->rsp = stack_pos;
+
+			for (int i=0;i<argc;i++){
+				printf("%x\n",args_pos[i] );
+			}
+		}
 		else
 			palloc_free_page (kpage);
 	}
