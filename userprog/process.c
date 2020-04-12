@@ -563,18 +563,19 @@ setup_stack (struct intr_frame *if_) {
 		success = install_page (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);
 		if (success){
 
-			char** argv = (char**) &if_->R.rsi; //&argv
+			char** argv = (char**) if_->R.rsi; //&argv
 			uint64_t argc = if_->R.rdi; //argc
 			uint64_t stack_pos = USER_STACK;
 			uint64_t args_pos[7];
 			for (int i=0;i<argc;i++){
-				size_t tmplen = strlen(argv[argc]) + 1;
+				size_t tmplen = strlen(argv[i]);
 				stack_pos = stack_pos - tmplen*8;
 				strlcpy((char*) stack_pos, argv[i], 128); //128 is max length of argument
 				args_pos[i] = stack_pos;
 			}
 			stack_pos -= WORD_ALIGN(stack_pos);
-//			stack_pos = (uint8_t[]) 0
+			// Can cause problem: skipped to insert padding
+			//stack_pos = (uint8_t[]) 0
 			for (int i = argc;i>=0;i--){
 				stack_pos-=8;
 				if (i==argc) *(char*)(stack_pos) = 0;
@@ -584,13 +585,10 @@ setup_stack (struct intr_frame *if_) {
 				
 			}
 			stack_pos-=8;
-			// how can I handle void (*) ()?
-			*(uint64_t*) stack_pos = 0;
+			// Can cause problem: can't handle void (*) ()
+			*((uint64_t*) stack_pos)= 0;
 			if_->rsp = stack_pos;
 
-			for (int i=0;i<argc;i++){
-				printf("%x\n",args_pos[i] );
-			}
 		}
 		else
 			palloc_free_page (kpage);
