@@ -112,10 +112,10 @@ struct thread {
 	bool block_unblock;
 	struct lock *blocking_lock;         /* Blocking lock for waiter thread */
 	struct list acquired_locks;         /* List of holding locks */
+	struct list_elem elem2;
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
-	struct list_elem elem2;
 };
 
 struct priority_bucket {
