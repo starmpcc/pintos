@@ -167,7 +167,7 @@ error:
 */
 int
 process_exec (void *input) {
-	char *argv[7];
+	char *argv[32]; //proper limit of argument number
 	int argc=0;
 	char *token, *save_ptr;
 	for (token = strtok_r (input, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)){
@@ -566,10 +566,10 @@ setup_stack (struct intr_frame *if_) {
 			char** argv = (char**) if_->R.rsi; //&argv
 			uint64_t argc = if_->R.rdi; //argc
 			uint64_t stack_pos = USER_STACK;
-			uint64_t args_pos[7];
+			uint64_t args_pos[32];
 			for (int i=0;i<argc;i++){
 				size_t tmplen = strlen(argv[i]);
-				stack_pos = stack_pos - tmplen*8;
+				stack_pos = stack_pos - tmplen -1;
 				strlcpy((char*) stack_pos, argv[i], 128); //128 is max length of argument
 				args_pos[i] = stack_pos;
 			}
@@ -580,7 +580,7 @@ setup_stack (struct intr_frame *if_) {
 				stack_pos-=8;
 				if (i==argc) *(char*)(stack_pos) = 0;
 				else{
-					*(char*)stack_pos = args_pos[i];
+					memcpy(stack_pos, &(args_pos[i]),8);
 				}
 				
 			}
@@ -588,7 +588,8 @@ setup_stack (struct intr_frame *if_) {
 			// Can cause problem: can't handle void (*) ()
 			*((uint64_t*) stack_pos)= 0;
 			if_->rsp = stack_pos;
-
+			if_->R.rsi = stack_pos+8;
+			if_->R.rdi=argc; 
 		}
 		else
 			palloc_free_page (kpage);
