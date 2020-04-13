@@ -7,6 +7,7 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "user/syscall.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -39,8 +40,79 @@ syscall_init (void) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
+syscall_handler (struct intr_frame *f) {
 	// TODO: Your implementation goes here.
+	switch(f->R.rax){
+		case SYS_HALT:
+			halt();
+			break;
+		case SYS_EXIT:
+			break;
+		case SYS_FORK:
+			break;
+		case SYS_EXEC:
+			break;
+		case SYS_WAIT:
+			break;
+		case SYS_CREATE:
+			break;
+		case SYS_REMOVE:
+			break;
+		case SYS_OPEN:
+			break;
+		case SYS_FILESIZE:
+			break;
+		case SYS_READ:
+			break;
+		case SYS_WRITE:
+			break;
+		case SYS_SEEK:
+			break;
+		case SYS_TELL:
+			break;
+		case SYS_CLOSE:
+			break;
+	/* Project 3 and optionally project 4. */
+		case SYS_MMAP:
+			break;
+		case SYS_MUNMAP:
+			break;
+
+	 /* Project 4 only. */
+		case SYS_CHDIR:
+			break;
+		case SYS_MKDIR:
+			break;
+		case SYS_READDIR:
+			break;
+		case SYS_ISDIR:
+			break;
+		case SYS_INUMBER:
+			break;
+	/* Extra for Project 2 */
+		case SYS_DUP2:
+			break;
+	}
 	printf ("system call!\n");
 	thread_exit ();
 }
+
+static void halt (void);
+static void exit (int status);
+static pid_t fork (const char *thread_name);
+static int exec (const char *cmd_line);
+static int wait (pid_t pid);
+static bool create (const char*file, unsigned inital_size);
+static bool remove (const char *file);
+static int filesize (int fd);
+static int read (int fd, void *buffer, unsigned size);
+static int write (int fd, const void *buffer, unsigned size);
+static void seek (int fd, unsigned position);
+static unsigned tell (int fd);
+static void close (int fd);
+
+void
+halt (void){
+	power_off();
+}
+
