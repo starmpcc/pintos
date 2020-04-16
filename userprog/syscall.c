@@ -69,6 +69,8 @@ syscall_handler (struct intr_frame *f) {
 			halt_s();
 			break;
 		case SYS_EXIT:
+			thread_exit();
+			f->R.rax=0;
 			break;
 		case SYS_FORK:
 			break;
@@ -77,28 +79,31 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_WAIT:
 			break;
 		case SYS_CREATE:
-			create_s ((const char*)f->R.rdi, (unsigned) f->R.rsi);
+			f->R.rax = create_s ((const char*)f->R.rdi, (unsigned) f->R.rsi);
 			break;
 		case SYS_REMOVE:
-			remove_s ((const char*)f->R.rdi);
+			f->R.rax = remove_s ((const char*)f->R.rdi);
 			break;
 		case SYS_OPEN:
-			open_s ((const char*) f->R.rdi);
+			f->R.rax = open_s ((const char*) f->R.rdi);
 			break;
 		case SYS_FILESIZE:
-			filesize_s ((int) f->R.rdi);
+			f->R.rax = filesize_s ((int) f->R.rdi);
 			break;
 		case SYS_READ:
-			read_s ((int) f->R.rdi, (void*) f->R.rsi, (unsigned int) f->R.rdx);
+			f->R.rax = read_s ((int) f->R.rdi, (void*) f->R.rsi, (unsigned int) f->R.rdx);
 			break;
 		case SYS_WRITE:
-			write_s ((int) f->R.rdi, (void*) f->R.rsi, (unsigned int) f->R.rdx);
+			f->R.rax = write_s ((int) f->R.rdi, (void*) f->R.rsi, (unsigned int) f->R.rdx);
 			break;
 		case SYS_SEEK:
+			seek_s ((const char*)f->R.rdi, (unsigned) f->R.rsi);
 			break;
 		case SYS_TELL:
+			f->R.rax = tell_s ((int) f->R.rdi);
 			break;
 		case SYS_CLOSE:
+			close_s ((int) f->R.rdi);
 			break;
 	/* Project 3 and optionally project 4. */
 		case SYS_MMAP:
@@ -120,6 +125,7 @@ syscall_handler (struct intr_frame *f) {
 	/* Extra for Project 2 */
 		case SYS_DUP2:
 			break;
+		NOT_REACHED();
 	}
 
 }
@@ -137,7 +143,7 @@ static int fd_current_max=1;
 static struct file* fd_file_list[MAX_OPEN_FILE];
 
 static struct file* fd_get_file(int fd){
-	if (fd>fd_current_max); //exit
+	if (fd>fd_current_max || fd<=1) return NULL;
 	return fd_file_list[fd];
 }
 
@@ -187,6 +193,7 @@ open_s (const char *file){
 static int
 filesize_s (int fd){
 	struct file* file = fd_get_file(fd);
+	if (file==NULL) return -1;
 	return (off_t) file_length(file);
 }
 
@@ -206,6 +213,7 @@ read_s (int fd, void *buffer, unsigned size){
 	}
 	else {
 		struct file* file = fd_get_file(fd);
+		if (file==NULL) return -1;
 		return file_read(file, buffer, size);
 	}
 }
@@ -218,6 +226,27 @@ write_s (int fd, const void *buffer, unsigned size){
 	}
 	else{
 		struct file* file = fd_get_file(fd);
+		if (file==NULL) return -1;
 		return file_write(file, buffer, size);		
 	}
+}
+
+static void
+seek_s (int fd, unsigned position) {
+	struct file* file = fd_get_file(fd);
+	file_seek(file, position);
+	return;
+}
+
+static unsigned
+tell_s (int fd){
+	struct file* file = fd_get_file(fd);
+	return file_tell(file);
+}
+
+static void
+close_s (int fd){
+	struct file* file = fd_get_file(fd);
+	file_close(file);
+	return;
 }
