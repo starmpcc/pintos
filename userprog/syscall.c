@@ -156,6 +156,7 @@ halt_s (void){
 
 static bool 
 create_s (const char *file, unsigned inital_size){
+	if (file==NULL) return false;
 	if (strlen(file)>MAX_FILE_NAME){
 		return false;
 	}
@@ -164,11 +165,13 @@ create_s (const char *file, unsigned inital_size){
 
 static bool
 remove_s (const char *file){
+	if (file==NULL) return false;
 	return filesys_remove(file);
 }
 
 static int 
 open_s (const char *file){
+	if (file==NULL) return -1;
 	for (int i = 2; i < fd_current_max; i++){
 		if (strcmp(fd_name_list[i], file)){
 			return i;
@@ -220,6 +223,7 @@ read_s (int fd, void *buffer, unsigned size){
 
 static int
 write_s (int fd, const void *buffer, unsigned size){
+	if (size==0) return -1;
 	if (fd==1){
 		putbuf(buffer, size);
 		return size;
