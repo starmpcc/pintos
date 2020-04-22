@@ -151,7 +151,6 @@ void
 thread_start (void) {
 	/* Create the idle thread. */
 
-// 여기서 한번 활성화 시켜보자
 	priority_buckets = (struct priority_bucket* ) palloc_get_multiple(PAL_ZERO, sizeof(struct priority_bucket)*64);
 	for (int i = 0; i < NUM_PRI; i++)
 		list_init (&priority_buckets[i].bucket);
@@ -323,7 +322,7 @@ thread_create (const char *name, int priority,
 		}
 		thread_active++;
 	} 
-
+	list_init(&(t->open_file));
 	/* Add to run queue. */
 	thread_unblock (t);
 
