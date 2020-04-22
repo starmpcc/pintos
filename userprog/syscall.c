@@ -5,6 +5,7 @@
 #include "threads/thread.h"
 #include "threads/loader.h"
 #include "userprog/gdt.h"
+#include "userprog/process.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "user/syscall.h"
@@ -69,14 +70,21 @@ syscall_handler (struct intr_frame *f) {
 			halt_s();
 			break;
 		case SYS_EXIT:
+			// TODO(chanil): setting exitcode to current thread?
+			f->R.rax = (int)f->R.rdi;
 			thread_exit();
-			f->R.rax=0;
 			break;
 		case SYS_FORK:
+			// printf("forking thread name %s\n", thread_current ()->name); // > "fork-once"
+			// NOTE(chanil): I don't understand why f instead of &thread_current ()->tf
+			//f->R.rax = process_fork ((const char*)f->R.rdi, &thread_current ()->tf);
+			f->R.rax = process_fork ((const char*)f->R.rdi, f);
 			break;
 		case SYS_EXEC:
+			f->R.rax = process_exec ((void *)f->R.rdi);
 			break;
 		case SYS_WAIT:
+			f->R.rax = process_wait ((tid_t)f->R.rdi);
 			break;
 		case SYS_CREATE:
 			f->R.rax = create_s ((const char*)f->R.rdi, (unsigned) f->R.rsi);
@@ -138,6 +146,7 @@ static struct file* fd_get_file(int fd);
 #define MAX_OPEN_FILE 64 //temporary
 #define EOF (-1)
 //syscall support variables 
+// TODO(chanil): move these local opened file related to process PCB after process_init
 static char* fd_name_list[MAX_OPEN_FILE]; 
 static int fd_current_max=1;
 static struct file* fd_file_list[MAX_OPEN_FILE];
@@ -180,6 +189,7 @@ open_s (const char *file){
 			//case that have to open new file;
 			struct file* file_struct = filesys_open(file);
 			if (file_struct == NULL) return -1;
+			// TODO(chanil): why repopen?
 			file_struct = file_reopen(file_struct);
 			fd_current_max++;
 			fd_file_list[fd_current_max] = file_struct;

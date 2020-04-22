@@ -31,6 +31,9 @@ static void __do_fork (void *);
 static void
 process_init (void) {
 	struct thread *current = thread_current ();
+	// TODO(chanil): may require process control block(PCB)
+	//  including fd opened file list and maybe child process pointer like things.
+	//  reference - https://jwprogramming.tistory.com/16
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -74,10 +77,13 @@ initd (void *f_name) {
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t
-process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+process_fork (const char *name, struct intr_frame *if_) {
 	/* Clone current thread to new thread.*/
+	struct fork_args args;
+	args.th = thread_current ();
+	args.tf = if_;
 	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+			PRI_DEFAULT, __do_fork, &args);
 }
 
 #ifndef VM
@@ -91,22 +97,30 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	void *newpage;
 	bool writable;
 
-	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	/* 1. If the parent_page is kernel page, then return immediately. */
+	if (is_kernel_vaddr (va))
+		return true;
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
 
-	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
-	 *    TODO: NEWPAGE. */
+	/* 3. Allocate new PAL_USER page for the child and set result to
+	 *    NEWPAGE. */
+	newpage = palloc_get_page (PAL_USER);
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+	memcpy (newpage, parent_page, PGSIZE);
+	//writable = vtop (parent_page) & PTE_W;
+	// TODO(chanil): handle proper way of parent page's writable
+	writable = true;
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		printf("pml4_set_page fail\n");
 	}
 	return true;
 }
@@ -119,10 +133,10 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
+	struct fork_args *args = (struct fork_args *) aux;
+	struct thread *parent = args->th;
 	struct thread *current = thread_current ();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = args->tf;
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
@@ -150,9 +164,11 @@ __do_fork (void *aux) {
 	 * TODO:       the resources of parent.*/
 
 	process_init ();
+	// TODO(chanil): iterate fd_file_list of parent process, set fd_file_list of current process PCB after file_duplicate
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
+		if_.R.rax = 0;
 		do_iret (&if_);
 error:
 	thread_exit ();
@@ -221,6 +237,7 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	while (true) {}
 	return -1;
 }
 
@@ -228,12 +245,12 @@ process_wait (tid_t child_tid UNUSED) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
-	//print message
-	
+	// Print termination message
+	// TODO(chanil): not confident
+	uint64_t ret = curr->tf.R.rax;
+	if (ret != 0)
+		printf ("%s: exit(%d)\n", curr->name, ret);
+
 	process_cleanup ();
 }
 
