@@ -14,7 +14,7 @@
 #include "threads/init.h"
 #include "lib/string.h"
 #include "lib/kernel/stdio.h"
-
+#include "lib/kernel/list.h"
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -144,8 +144,8 @@ static struct file* fd_get_file(int fd);
 #define MAX_FILE_NAME 14
 #define MAX_OPEN_FILE 64 //temporary
 #define EOF (-1)
-//syscall support variables 
-// TODO(chanil): move these local opened file related to process PCB after process_init
+//syscall support variables
+//All processes share one structure
 static char* fd_name_list[MAX_OPEN_FILE]; 
 static int fd_current_max=1;
 static struct file* fd_file_list[MAX_OPEN_FILE];
@@ -170,21 +170,25 @@ exit_s (int status){
 
 static bool 
 create_s (const char *file, unsigned inital_size){
-	if (strlen(file)>MAX_FILE_NAME){
-		return false;
-	}
+	if (file==NULL || strlen(file)>MAX_FILE_NAME) return false;
+	//need to check file vaildation
 	return filesys_create (file, (off_t)inital_size);
 }
 
 static bool
 remove_s (const char *file){
+	if (file==NULL) return false;
 	return filesys_remove(file);
 }
 
 static int 
 open_s (const char *file){
+	if (file==NULL) return -1;
 	for (int i = 2; i < fd_current_max; i++){
 		if (strcmp(fd_name_list[i], file)){
+			struct file_descriptor_number fdn;
+			fdn.fd=i;
+			list_insert(&fdn.elem,&thread_current()->open_file);
 			return i;
 		}
 		else if (fd_current_max>=MAX_OPEN_FILE){
@@ -199,6 +203,10 @@ open_s (const char *file){
 			fd_current_max++;
 			fd_file_list[fd_current_max] = file_struct;
 			fd_name_list[fd_current_max] = file;
+
+			struct file_descriptor_number fdn;
+			fdn.fd=fd_current_max;
+			list_insert(&(fdn.elem),&thread_current()->open_file);
 			return fd_current_max;
 		}
 	}
@@ -235,6 +243,7 @@ read_s (int fd, void *buffer, unsigned size){
 
 static int
 write_s (int fd, const void *buffer, unsigned size){
+	if (size==0) return -1;
 	if (fd==1){
 		putbuf(buffer, size);
 		return size;
@@ -262,6 +271,19 @@ tell_s (int fd){
 static void
 close_s (int fd){
 	struct file* file = fd_get_file(fd);
+	if (file==NULL) return;
 	file_close(file);
+	struct list* open_file = &(thread_current()-> open_file);
+	ASSERT(list_empty(open_file));
+	int flag=0;
+	for (struct list_elem* i = list_front(open_file); i!=list_end(open_file); i = list_next(i) ){
+		struct file_descriptor_number* fdn = list_entry(i, struct file_descriptor_number, elem);
+		if (fdn->fd==fd){
+			list_remove(&(fdn->elem));
+			flag=1;
+			break;
+		}
+	}
+	ASSERT(flag);
 	return;
 }

@@ -95,7 +95,6 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
-
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -104,6 +103,9 @@ struct thread {
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
+
+//for 2 userprog
+	struct list open_file;
 
 //for 1-3:Advanced Scheduler
 // need init
@@ -123,6 +125,11 @@ struct thread {
 
 struct priority_bucket {
 	struct list bucket;
+	struct list_elem elem;
+};
+
+struct file_descriptor_number{
+	int fd;
 	struct list_elem elem;
 };
 
