@@ -142,12 +142,8 @@ page_fault (struct intr_frame *f) {
 
 	if (user)
 	{
-		printf ("hit! %x, %x\n", f->rip ,f->R.rax);
-		f->rip = f->R.rax;
-		f->R.rax = -1;
-		// TODO(chanil): check validity. w.o. this tf is same as main
 		struct thread *curr = thread_current ();
-		curr->tf = *f;
+		curr->exitcode = -1;
 	}
 #ifdef VM
 	/* For project 3 and later. */

@@ -245,11 +245,12 @@ process_wait (tid_t child_tid UNUSED) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	// Print termination message
-	// TODO(chanil): not confident
-	uint64_t ret = curr->tf.R.rax;
-	if (ret != 0)
-		printf ("%s: exit(%d)\n", curr->name, ret);
+
+	// Print termination message when user process terminates
+	if (curr->tid != 0)
+		// TODO(chanil): check better way of checking kernel thread
+		// Not idle thread, which means user thread.
+		printf ("%s: exit(%d)\n", curr->name, curr->exitcode);
 
 	process_cleanup ();
 }

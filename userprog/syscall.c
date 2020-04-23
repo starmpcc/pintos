@@ -21,7 +21,7 @@ void syscall_handler (struct intr_frame *);
 //syscall functions
 
 static void halt_s (void);
-static void exit_s (int status);
+static int exit_s (int status);
 static pid_t fork_s (const char *thread_name);
 static int exec_s (const char *cmd_line);
 static int wait_s (pid_t pid);
@@ -71,8 +71,7 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_EXIT:
 			// TODO(chanil): setting exitcode to current thread?
-			f->R.rax = (int)f->R.rdi;
-			thread_exit();
+			f->R.rax = exit_s((int)f->R.rdi);
 			break;
 		case SYS_FORK:
 			// printf("forking thread name %s\n", thread_current ()->name); // > "fork-once"
@@ -162,6 +161,12 @@ halt_s (void){
 	power_off();
 }
 
+static int
+exit_s (int status){
+	thread_current ()->exitcode = status;
+	thread_exit();
+	return status;
+}
 
 static bool 
 create_s (const char *file, unsigned inital_size){
