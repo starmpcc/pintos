@@ -15,6 +15,7 @@
 #include "lib/string.h"
 #include "lib/kernel/stdio.h"
 #include "lib/kernel/list.h"
+#include "devices/input.h"
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -104,7 +105,7 @@ syscall_handler (struct intr_frame *f) {
 			f->R.rax = write_s ((int) f->R.rdi, (void*) f->R.rsi, (unsigned int) f->R.rdx);
 			break;
 		case SYS_SEEK:
-			seek_s ((const char*)f->R.rdi, (unsigned) f->R.rsi);
+			seek_s ((int)f->R.rdi, (unsigned) f->R.rsi);
 			break;
 		case SYS_TELL:
 			f->R.rax = tell_s ((int) f->R.rdi);
@@ -140,21 +141,45 @@ syscall_handler (struct intr_frame *f) {
 
 //syscall support functions
 static struct file* fd_get_file(int fd);
+static bool is_opened(int fd);
+static void exit_close_file(struct list open_file);
 //syscall support macros
 #define MAX_FILE_NAME 14
 #define MAX_OPEN_FILE 64 //temporary
 #define EOF (-1)
 //syscall support variables
 //All processes share one structure
-static char* fd_name_list[MAX_OPEN_FILE]; 
+static const char* fd_name_list[MAX_OPEN_FILE];
 static int fd_current_max=1;
 static struct file* fd_file_list[MAX_OPEN_FILE];
+static int fd_open_cnt[MAX_OPEN_FILE]={0,};
 
 static struct file* fd_get_file(int fd){
 	if (fd>fd_current_max || fd<=1) return NULL;
 	return fd_file_list[fd];
 }
 
+//return if the fd is opened in that file.
+static bool is_opened(int fd){
+	if (fd==0 || fd==1) return 1;
+	struct list open_file = thread_current()->open_file;
+	int flag = 0;
+	if (!list_empty(&open_file)){
+		for (struct list_elem* i = list_front(&open_file);i != list_end(&open_file);i = list_next(i)){
+			if (fd == list_entry(i,struct file_descriptor_number, elem)->fd) flag = 1;
+		}
+	}
+	return flag;
+}
+
+//if thread exit, close unique opened files;
+static void exit_close_file(struct list open_file){
+	if (list_empty(&open_file)) return;
+	for (struct list_elem* i = list_front(&open_file);i != list_end(&open_file);i = list_next(i)){
+		int fd = list_entry(i, struct file_descriptor_number, elem)->fd;
+		close_s(fd);
+	}
+}
 
 static void
 halt_s (void){
@@ -184,37 +209,53 @@ remove_s (const char *file){
 static int 
 open_s (const char *file){
 	if (file==NULL) return -1;
-	for (int i = 2; i < fd_current_max; i++){
-		if (strcmp(fd_name_list[i], file)){
+	int slot=2;
+	//case that file is already opened in some thread
+	for (; slot <= fd_current_max; slot++){
+		//case that there is blank slot(already open&closed)
+		if (fd_name_list[slot]==NULL){
+			break;
+		}
+		if (strcmp(fd_name_list[slot], file)){
+			struct list open_file = thread_current()->open_file;
+			int flag=0;
+			for (struct list_elem* i = list_front(&open_file); i!=list_end(&open_file); i = list_next(i) ){
+				int fd = list_entry(i, struct file_descriptor_number, elem)->fd;
+				if (fd==slot) flag=1;
+			}
+			if (flag == 1) continue;
 			struct file_descriptor_number fdn;
-			fdn.fd=i;
-			list_insert(&fdn.elem,&thread_current()->open_file);
-			return i;
+			fdn.fd=slot;
+			list_push_back(&thread_current()->open_file,&fdn.elem);
+			fd_open_cnt[slot]++;
+			return slot;
 		}
-		else if (fd_current_max>=MAX_OPEN_FILE){
-			return -1;
-		}
-		else{
-			//case that have to open new file;
-			struct file* file_struct = filesys_open(file);
-			if (file_struct == NULL) return -1;
-			// TODO(chanil): why repopen?
-			file_struct = file_reopen(file_struct);
-			fd_current_max++;
-			fd_file_list[fd_current_max] = file_struct;
-			fd_name_list[fd_current_max] = file;
-
-			struct file_descriptor_number fdn;
-			fdn.fd=fd_current_max;
-			list_insert(&(fdn.elem),&thread_current()->open_file);
-			return fd_current_max;
-		}
+		if (slot==fd_current_max) slot++;
 	}
+
+	//case that already opened maximum file
+	if (slot >= MAX_OPEN_FILE){
+		return -1;
+	}
+
+
+	//case that have to open new file;
+	struct file* file_struct = filesys_open(file);
+	if (file_struct == NULL) return -1;
+	if (slot > fd_current_max) fd_current_max++;
+	fd_open_cnt[slot]++;
+	fd_file_list[slot] = file_struct;
+	fd_name_list[slot] = file;
+	struct file_descriptor_number fdn;
+	fdn.fd=slot;
+	list_push_back(&thread_current()->open_file, &(fdn.elem));
+	return slot;
 
 }
 
 static int
 filesize_s (int fd){
+	if (!is_opened(fd)) return -1;
 	struct file* file = fd_get_file(fd);
 	if (file==NULL) return -1;
 	return (off_t) file_length(file);
@@ -222,6 +263,7 @@ filesize_s (int fd){
 
 static int
 read_s (int fd, void *buffer, unsigned size){
+	if (!is_opened(fd)) return -1;
 	char tmp[size];
 	if (fd==0){
 		for (int i=1;i<=size;i++){
@@ -243,6 +285,7 @@ read_s (int fd, void *buffer, unsigned size){
 
 static int
 write_s (int fd, const void *buffer, unsigned size){
+	if (!is_opened(fd)) return -1;
 	if (size==0) return -1;
 	if (fd==1){
 		putbuf(buffer, size);
@@ -270,8 +313,9 @@ tell_s (int fd){
 
 static void
 close_s (int fd){
+	if (!is_opened(fd)) return;
 	struct file* file = fd_get_file(fd);
-	if (file==NULL) return;
+	ASSERT(file==NULL);
 	file_close(file);
 	struct list* open_file = &(thread_current()-> open_file);
 	ASSERT(list_empty(open_file));
@@ -284,6 +328,11 @@ close_s (int fd){
 			break;
 		}
 	}
+	if (--fd_open_cnt[fd] == 0){
+		fd_file_list[fd] = NULL;
+		fd_name_list[fd] = NULL;
+	}
+
 	ASSERT(flag);
 	return;
 }
