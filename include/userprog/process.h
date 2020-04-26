@@ -11,8 +11,8 @@ void process_exit (void);
 void process_activate (struct thread *next);
 
 struct fork_args  {
-  struct thread *th;
-  struct intr_frame *tf;
+  struct thread *parent;
+  void *additional;
 };
 
 #endif /* userprog/process.h */
