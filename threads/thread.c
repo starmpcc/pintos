@@ -325,6 +325,9 @@ thread_create (const char *name, int priority,
 		thread_active++;
 	} 
 	t->fd_max=1;
+	if (thread_current()!=idle_thread){
+		t->fd_max = thread_current()->fd_max;
+	}
 	/* Add to run queue. */
 	thread_unblock (t);
 

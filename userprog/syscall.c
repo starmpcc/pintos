@@ -25,9 +25,6 @@ void syscall_handler (struct intr_frame *);
 
 static void halt_s (void);
 static int exit_s (int status);
-static pid_t fork_s (const char *thread_name);
-static int exec_s (const char *cmd_line);
-static int wait_s (pid_t pid);
 static bool create_s (const char*file, unsigned inital_size);
 static bool remove_s (const char *file);
 static int open_s (const char* file);
@@ -37,6 +34,7 @@ static int write_s (int fd, const void *buffer, unsigned size);
 static void seek_s (int fd, unsigned position);
 static unsigned tell_s (int fd);
 static void close_s (int fd);
+
 
 /* System call.
  *
@@ -168,7 +166,6 @@ open_global(struct file* file){
 
 static void
 close_global(struct file* file){
-	int flag = 0;
 	for (int i = 1; i  <=opened_file_number;i++){
 		if (file->inode == opened_file_inode[i]){
 			opened_file_cnt[i]--;
@@ -186,6 +183,14 @@ check_fd(int fd){
 	int fd_max = thread_current() ->fd_max;
 	if (fd<0 || fd> MAX_OPEN_FILE || fd>fd_max) return 0;
 	return 1;
+}
+
+void
+fork_file(struct thread* current, struct thread* parent){
+	for (int i=0; i<parent->fd_max -1 ;i++){
+		current->open_file[i] = file_duplicate(parent->open_file[i]);
+		open_global(current->open_file[i]);
+	}
 }
 
 static void
@@ -240,7 +245,7 @@ read_s (int fd, void *buffer, unsigned size){
 	if (!is_user_vaddr(buffer)) exit_s(-1);
 	char tmp[size];
 	if (fd==0){
-		for (int i=1;i<=size;i++){
+		for (int i=1;i<= (int) size;i++){
 			tmp[i] = (char) input_getc();
 			if (tmp[i]==EOF){
 				strlcpy(buffer, tmp, i);
@@ -289,7 +294,7 @@ tell_s (int fd){
 
 static void
 close_s (int fd){
-	if (!check_fd(fd)) return -1;
+	if (!check_fd(fd)) return;
 	struct file* file = thread_current() ->open_file[fd];
 	if (file==NULL) return ;
 	close_global(file);
