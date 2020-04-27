@@ -115,7 +115,9 @@ struct thread {
 #endif
 
 //for 2 userprog
-	struct list open_file;
+	struct file* open_file[32];
+	//CAUTION: 32 is temporal value
+	int fd_max;
 
 // fork related
 	struct thread *parent;
@@ -141,10 +143,6 @@ struct priority_bucket {
 	struct list_elem elem;
 };
 
-struct file_descriptor_number{
-	int fd;
-	struct list_elem elem;
-};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

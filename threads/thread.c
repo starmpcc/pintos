@@ -324,7 +324,7 @@ thread_create (const char *name, int priority,
 		}
 		thread_active++;
 	} 
-	list_init(&(t->open_file));
+	t->fd_max=1;
 	/* Add to run queue. */
 	thread_unblock (t);
 

@@ -16,6 +16,8 @@
 #include "lib/kernel/stdio.h"
 #include "lib/kernel/list.h"
 #include "devices/input.h"
+#include "threads/vaddr.h"
+#include "threads/mmu.h"
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -139,46 +141,51 @@ syscall_handler (struct intr_frame *f) {
 }
 
 
-//syscall support functions
-static struct file* fd_get_file(int fd);
-static bool is_opened(int fd);
-static void exit_close_file(struct list open_file);
 //syscall support macros
 #define MAX_FILE_NAME 14
 #define MAX_OPEN_FILE 64 //temporary
 #define EOF (-1)
 //syscall support variables
-//All processes share one structure
-static const char* fd_name_list[MAX_OPEN_FILE];
-static int fd_current_max=1;
-static struct file* fd_file_list[MAX_OPEN_FILE];
-static int fd_open_cnt[MAX_OPEN_FILE]={0,};
-
-static struct file* fd_get_file(int fd){
-	if (fd>fd_current_max || fd<=1) return NULL;
-	return fd_file_list[fd];
-}
-
-//return if the fd is opened in that file.
-static bool is_opened(int fd){
-	if (fd==0 || fd==1) return 1;
-	struct list open_file = thread_current()->open_file;
+static struct inode* opened_file_inode[MAX_OPEN_FILE];
+static int opened_file_cnt[MAX_OPEN_FILE] = {0,};
+int opened_file_number=0;
+//syscall support functions
+static void
+open_global(struct file* file){
 	int flag = 0;
-	if (!list_empty(&open_file)){
-		for (struct list_elem* i = list_front(&open_file);i != list_end(&open_file);i = list_next(i)){
-			if (fd == list_entry(i,struct file_descriptor_number, elem)->fd) flag = 1;
+	for (int i = 1; i  <=opened_file_number;i++){
+		if (file->inode == opened_file_inode[i]){
+			flag=1;
+			break;
 		}
 	}
-	return flag;
+	if (flag==0){
+		opened_file_number++;
+		opened_file_inode[opened_file_number-1] = file->inode;
+		opened_file_cnt[opened_file_number-1]++;
+	}
 }
 
-//if thread exit, close unique opened files;
-static void exit_close_file(struct list open_file){
-	if (list_empty(&open_file)) return;
-	for (struct list_elem* i = list_front(&open_file);i != list_end(&open_file);i = list_next(i)){
-		int fd = list_entry(i, struct file_descriptor_number, elem)->fd;
-		close_s(fd);
+static void
+close_global(struct file* file){
+	int flag = 0;
+	for (int i = 1; i  <=opened_file_number;i++){
+		if (file->inode == opened_file_inode[i]){
+			opened_file_cnt[i]--;
+			if (opened_file_cnt[i]==0){
+				file_close(file);
+			}
+			break;
+		}
 	}
+}
+
+
+static bool
+check_fd(int fd){
+	int fd_max = thread_current() ->fd_max;
+	if (fd<0 || fd> MAX_OPEN_FILE || fd>fd_max) return 0;
+	return 1;
 }
 
 static void
@@ -195,75 +202,42 @@ exit_s (int status){
 
 static bool 
 create_s (const char *file, unsigned inital_size){
-	if (file==NULL || strlen(file)>MAX_FILE_NAME) return false;
+	if (!is_user_vaddr(file)) exit_s(-1);
+	if (strlen(file)>MAX_FILE_NAME) return false;
 	//need to check file vaildation
 	return filesys_create (file, (off_t)inital_size);
 }
 
 static bool
 remove_s (const char *file){
-	if (file==NULL) return false;
+	if (!is_user_vaddr(file)) exit_s(-1);
 	return filesys_remove(file);
 }
 
 static int 
 open_s (const char *file){
-	if (file==NULL) return -1;
-	int slot=2;
-	//case that file is already opened in some thread
-	for (; slot <= fd_current_max; slot++){
-		//case that there is blank slot(already open&closed)
-		if (fd_name_list[slot]==NULL){
-			break;
-		}
-		if (strcmp(fd_name_list[slot], file)){
-			struct list open_file = thread_current()->open_file;
-			int flag=0;
-			for (struct list_elem* i = list_front(&open_file); i!=list_end(&open_file); i = list_next(i) ){
-				int fd = list_entry(i, struct file_descriptor_number, elem)->fd;
-				if (fd==slot) flag=1;
-			}
-			if (flag == 1) continue;
-			struct file_descriptor_number fdn;
-			fdn.fd=slot;
-			list_push_back(&thread_current()->open_file,&fdn.elem);
-			fd_open_cnt[slot]++;
-			return slot;
-		}
-		if (slot==fd_current_max) slot++;
-	}
-
-	//case that already opened maximum file
-	if (slot >= MAX_OPEN_FILE){
-		return -1;
-	}
-
-
-	//case that have to open new file;
+	if (!is_user_vaddr(file)) exit_s(-1);
+	int fd=++thread_current()->fd_max;
+	ASSERT(fd<32);
 	struct file* file_struct = filesys_open(file);
 	if (file_struct == NULL) return -1;
-	if (slot > fd_current_max) fd_current_max++;
-	fd_open_cnt[slot]++;
-	fd_file_list[slot] = file_struct;
-	fd_name_list[slot] = file;
-	struct file_descriptor_number fdn;
-	fdn.fd=slot;
-	list_push_back(&thread_current()->open_file, &(fdn.elem));
-	return slot;
-
+	thread_current()->open_file[fd] = file_struct;
+	open_global(file_struct);
+	return fd;
 }
 
 static int
 filesize_s (int fd){
-	if (!is_opened(fd)) return -1;
-	struct file* file = fd_get_file(fd);
-	if (file==NULL) return -1;
-	return (off_t) file_length(file);
+	if (!check_fd(fd)) return -1;
+	struct file* file = thread_current()->open_file[fd];
+	if (file == NULL) return -1;
+	return file_length(file);
 }
 
 static int
 read_s (int fd, void *buffer, unsigned size){
-	if (!is_opened(fd)) return -1;
+	if (!check_fd(fd)) return -1;
+	if (!is_user_vaddr(buffer)) exit_s(-1);
 	char tmp[size];
 	if (fd==0){
 		for (int i=1;i<=size;i++){
@@ -276,63 +250,48 @@ read_s (int fd, void *buffer, unsigned size){
 		strlcpy(buffer, tmp, size);
 		return size;
 	}
+	else if (fd == 1) return -1;
 	else {
-		struct file* file = fd_get_file(fd);
-		if (file==NULL) return -1;
+		struct file* file = thread_current()->open_file[fd];
+		if (file == NULL) return -1;
 		return file_read(file, buffer, size);
 	}
 }
 
 static int
 write_s (int fd, const void *buffer, unsigned size){
-	if (!is_opened(fd)) return -1;
-	if (size==0) return -1;
+	if (!check_fd(fd)) return -1;
+	if (!is_user_vaddr(buffer)) exit_s(-1);
+	if (size==0) return 0;
 	if (fd==1){
 		putbuf(buffer, size);
 		return size;
 	}
 	else{
-		struct file* file = fd_get_file(fd);
-		if (file==NULL) return -1;
+		struct file* file = thread_current() ->open_file[fd];
+		if (file == NULL) return -1;
 		return file_write(file, buffer, size);		
 	}
 }
 
 static void
 seek_s (int fd, unsigned position) {
-	struct file* file = fd_get_file(fd);
+	struct file* file = thread_current() ->open_file[fd];
 	file_seek(file, position);
 	return;
 }
 
 static unsigned
 tell_s (int fd){
-	struct file* file = fd_get_file(fd);
+	struct file* file = thread_current() ->open_file[fd];
 	return file_tell(file);
 }
 
 static void
 close_s (int fd){
-	if (!is_opened(fd)) return;
-	struct file* file = fd_get_file(fd);
-	ASSERT(file==NULL);
-	file_close(file);
-	struct list* open_file = &(thread_current()-> open_file);
-	ASSERT(list_empty(open_file));
-	int flag=0;
-	for (struct list_elem* i = list_front(open_file); i!=list_end(open_file); i = list_next(i) ){
-		struct file_descriptor_number* fdn = list_entry(i, struct file_descriptor_number, elem);
-		if (fdn->fd==fd){
-			list_remove(&(fdn->elem));
-			flag=1;
-			break;
-		}
-	}
-	if (--fd_open_cnt[fd] == 0){
-		fd_file_list[fd] = NULL;
-		fd_name_list[fd] = NULL;
-	}
-
-	ASSERT(flag);
-	return;
+	if (!check_fd(fd)) return -1;
+	struct file* file = thread_current() ->open_file[fd];
+	if (file==NULL) return ;
+	close_global(file);
+	thread_current()->open_file[fd] = NULL;
 }
