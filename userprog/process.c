@@ -17,23 +17,32 @@
 #include "threads/thread.h"
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 #include "intrinsic.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
 
+/* Used to synchronize shared state children_info_lock */
+struct lock children_info_lock;
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
-static void initd (void *f_name);
+static void initd (void *);
 static void __do_fork (void *);
 
 /* General process initializer for initd and other process. */
 static void
-process_init (void) {
-	struct thread *current = thread_current ();
-	// TODO(chanil): may require process control block(PCB)
-	//  including fd opened file list and maybe child process pointer like things.
-	//  reference - https://jwprogramming.tistory.com/16
+process_init (struct thread *parent) {
+	struct thread *curr = thread_current ();
+	curr->parent = parent;
+
+	// Create new child_info in shared state children_info
+	lock_acquire (&children_info_lock);
+	struct child_info *cinfo = new_child_info ();
+	cinfo->tid = curr->tid;
+	cinfo->parent_tid = parent->tid;
+	lock_release (&children_info_lock);
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -54,7 +63,10 @@ process_create_initd (const char *file_name) {
 	strlcpy (fn_copy, file_name, PGSIZE);
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	struct fork_args args;
+	args.parent = thread_current ();
+	args.additional = fn_copy;
+	tid = thread_create (file_name, PRI_DEFAULT, initd, &args);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -62,12 +74,15 @@ process_create_initd (const char *file_name) {
 
 /* A thread function that launches first user process. */
 static void
-initd (void *f_name) {
+initd (void *aux) {
+	struct fork_args *args = (struct fork_args *) aux;
+	struct thread *parent = args->parent;
+	void *f_name = args->additional;
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
 
-	process_init ();
+	process_init (parent);
 
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -80,8 +95,8 @@ tid_t
 process_fork (const char *name, struct intr_frame *if_) {
 	/* Clone current thread to new thread.*/
 	struct fork_args args;
-	args.th = thread_current ();
-	args.tf = if_;
+	args.parent = thread_current ();
+	args.additional = if_;
 	return thread_create (name,
 			PRI_DEFAULT, __do_fork, &args);
 }
@@ -134,9 +149,9 @@ static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
 	struct fork_args *args = (struct fork_args *) aux;
-	struct thread *parent = args->th;
+	struct thread *parent = args->parent;
 	struct thread *current = thread_current ();
-	struct intr_frame *parent_if = args->tf;
+	struct intr_frame *parent_if = (struct intr_fram *) args->additional;
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
@@ -163,7 +178,7 @@ __do_fork (void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 
-	process_init ();
+	process_init (parent);
 	// TODO(chanil): iterate fd_file_list of parent process, set fd_file_list of current process PCB after file_duplicate
 
 	/* Finally, switch to the newly created process. */
@@ -233,12 +248,32 @@ process_exec (void *input) {
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) {
+process_wait (tid_t child_tid) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	while (true) {}
-	return -1;
+	struct thread *curr = thread_current ();
+	int exitcode;
+	struct child_info *cinfo;
+
+	// Get child_info with child_tid
+	lock_acquire (&children_info_lock);
+	cinfo = get_child_info (child_tid);
+	lock_release (&children_info_lock);
+	if (cinfo == NULL || cinfo->parent_tid != curr->tid
+			|| cinfo->wait_count > 0)
+		return -1;
+
+	// child_info sema down for wait child killed.
+	sema_down (&cinfo->sema);
+	// Resumed after child kill successfully
+	// or pass directly to here for already killed child.
+
+	// Get exitcode, increment wait_count.
+	exitcode = cinfo->exitcode;
+	cinfo->wait_count++;
+
+	return exitcode;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -251,6 +286,18 @@ process_exit (void) {
 		// TODO(chanil): check better way of checking kernel thread
 		// Not idle thread, which means user thread.
 		printf ("%s: exit(%d)\n", curr->name, curr->exitcode);
+
+	struct thread *parent = curr->parent;
+	lock_acquire (&children_info_lock);
+	struct child_info *cinfo = get_child_info(curr->tid);
+	lock_release (&children_info_lock);
+	if (parent != NULL && cinfo != NULL && parent->tid == cinfo->parent_tid)
+	{
+		// Update exit status for this tid
+		cinfo->exitcode = curr->exitcode;
+		// sema up for unblock or enable wait syscall
+		sema_up (&cinfo->sema);
+	}
 
 	process_cleanup ();
 }

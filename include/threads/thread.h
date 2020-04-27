@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -28,6 +29,15 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 #define NUM_PRI PRI_MAX-PRI_MIN+1
+
+struct child_info {
+	tid_t tid;
+	tid_t parent_tid;
+	struct semaphore sema;
+	int exitcode;
+	uint64_t wait_count;
+	struct list_elem elem;
+};
 
 /* A kernel thread or user process.
  *
@@ -107,6 +117,9 @@ struct thread {
 //for 2 userprog
 	struct list open_file;
 
+// fork related
+	struct thread *parent;
+
 //for 1-3:Advanced Scheduler
 // need init
 	int nice;
@@ -137,6 +150,9 @@ struct file_descriptor_number{
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+/* Used to synchronize shared state children_info_lock */
+extern struct lock children_info_lock;
 
 void thread_init (void);
 void thread_start (void);
@@ -172,5 +188,8 @@ void thread_sleep (int64_t wakeup_tick, struct thread* thread);
 
 void bucket_push (struct thread *);
 void bucket_remove (struct thread *);
+
+struct child_info *new_child_info ();
+struct child_info *get_child_info (tid_t child_tid);
 
 #endif /* threads/thread.h */

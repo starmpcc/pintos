@@ -8,7 +8,6 @@
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
-#include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
 #include "devices/timer.h"
@@ -30,6 +29,10 @@
 static struct list ready_list;
 
 static struct priority_bucket* priority_buckets;
+
+/* Used to synchronize shared state children_info_lock */
+struct lock children_info_lock;
+static struct list children_info;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -133,9 +136,8 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
-/*	for (i = 0; i < NUM_PRI; i++)
-		list_init (&priority_buckets[i].bucket);
-*/
+	list_init (&children_info);
+	lock_init (&children_info_lock);
 	list_init (&blocked_list);
 
 	/* Set up a thread structure for the running thread. */
@@ -634,6 +636,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->blocking_lock = NULL;
 	t->exitcode = 0;
 	list_init (&t->acquired_locks);
+
+	t->parent = NULL;
+
 	t->magic = THREAD_MAGIC;
 
 	//for advanced scheduler
@@ -870,3 +875,31 @@ bucket_pointer_more (const struct list_elem *a,
 	return a_pointer > b_pointer;
 }
 
+struct child_info *
+new_child_info () {
+	struct child_info *cinfo = (struct child_info *) palloc_get_page(PAL_ZERO);
+
+	cinfo->tid = NULL;
+	cinfo->parent_tid = NULL;
+	sema_init (&cinfo->sema, 0);
+	cinfo->exitcode = NULL;
+	cinfo->wait_count = 0;
+
+	list_push_back (&children_info, &cinfo->elem);
+	return cinfo;
+}
+
+struct child_info *
+get_child_info (tid_t child_tid) {
+	struct list_elem *i;
+	struct child_info *cinfo;
+
+	for (i = list_front (&children_info); i != list_end (&children_info); i = list_next (i))
+	{
+		cinfo = list_entry (i, struct child_info, elem);
+		if (cinfo->tid == child_tid)
+			return cinfo;
+	}
+
+	return NULL;
+}
