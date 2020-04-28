@@ -5,6 +5,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "intrinsic.h"
+#include "userprog/syscall.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -142,8 +143,11 @@ page_fault (struct intr_frame *f) {
 
 	if (user)
 	{
-		struct thread *curr = thread_current ();
-		curr->exitcode = -1;
+		struct intr_frame *f;
+		f->R.rax = 1; //exit code
+		f->R.rdi = -1;
+		syscall_handler(f);
+		return;
 	}
 #ifdef VM
 	/* For project 3 and later. */

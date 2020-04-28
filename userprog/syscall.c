@@ -20,7 +20,6 @@
 #include "threads/mmu.h"
 #include "threads/palloc.h"
 void syscall_entry (void);
-void syscall_handler (struct intr_frame *);
 
 //syscall functions
 
@@ -198,7 +197,7 @@ static void
 is_correct_addr(void* ptr){
 	if (ptr == NULL) exit_s(-1);
 	if (!is_user_vaddr(ptr)) exit_s(-1);
-	if (pml4e_walk(thread_current()->pml4, ptr, 0)==NULL) exit_s(-1);
+	if (pml4e_walk(thread_current()->pml4, (const uint64_t) ptr, 0)==NULL) exit_s(-1);
 }
 
 static void
@@ -215,7 +214,7 @@ exit_s (int status){
 
 static bool 
 create_s (const char *file, unsigned inital_size){
-	is_correct_addr(file);
+	is_correct_addr((void*) file);
 	if (strlen(file)>MAX_FILE_NAME) return false;
 	//need to check file vaildation
 	return filesys_create (file, (off_t)inital_size);
@@ -223,14 +222,14 @@ create_s (const char *file, unsigned inital_size){
 
 static bool
 remove_s (const char *file){
-	is_correct_addr(file);
+	is_correct_addr((void*) file);
 	if (!is_user_vaddr(file)) exit_s(-1);
 	return filesys_remove(file);
 }
 
 static int 
 open_s (const char *file){
-	is_correct_addr(file);
+	is_correct_addr((void*) file);
 	int fd=++thread_current()->fd_max;
 	ASSERT(fd<32);
 	struct file* file_struct = filesys_open(file);
@@ -265,7 +264,7 @@ read_s (int fd, void *buffer, unsigned size){
 	}
 	else if (fd == 1) return -1;
 	else {
-		is_correct_addr(buffer);
+		is_correct_addr((void*) buffer);
 		struct file* file = thread_current()->open_file[fd];
 		if (file == NULL) return -1;
 		return file_read(file, buffer, size);
@@ -281,7 +280,7 @@ write_s (int fd, const void *buffer, unsigned size){
 		return size;
 	}
 	else{
-		is_correct_addr(buffer);
+		is_correct_addr((void*) buffer);
 		struct file* file = thread_current() ->open_file[fd];
 		if (file == NULL) return -1;
 		return file_write(file, buffer, size);		
