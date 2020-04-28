@@ -18,6 +18,7 @@
 #include "devices/input.h"
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
+#include "threads/palloc.h"
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -194,6 +195,13 @@ fork_file(struct thread* current, struct thread* parent){
 }
 
 static void
+is_correct_addr(void* ptr){
+	if (ptr == NULL) exit_s(-1);
+	if (!is_user_vaddr(ptr)) exit_s(-1);
+	if (pml4e_walk(thread_current()->pml4, ptr, 0)==NULL) exit_s(-1);
+}
+
+static void
 halt_s (void){
 	power_off();
 }
@@ -207,7 +215,7 @@ exit_s (int status){
 
 static bool 
 create_s (const char *file, unsigned inital_size){
-	if (!is_user_vaddr(file)) exit_s(-1);
+	is_correct_addr(file);
 	if (strlen(file)>MAX_FILE_NAME) return false;
 	//need to check file vaildation
 	return filesys_create (file, (off_t)inital_size);
@@ -215,13 +223,14 @@ create_s (const char *file, unsigned inital_size){
 
 static bool
 remove_s (const char *file){
+	is_correct_addr(file);
 	if (!is_user_vaddr(file)) exit_s(-1);
 	return filesys_remove(file);
 }
 
 static int 
 open_s (const char *file){
-	if (!is_user_vaddr(file)) exit_s(-1);
+	is_correct_addr(file);
 	int fd=++thread_current()->fd_max;
 	ASSERT(fd<32);
 	struct file* file_struct = filesys_open(file);
@@ -242,7 +251,6 @@ filesize_s (int fd){
 static int
 read_s (int fd, void *buffer, unsigned size){
 	if (!check_fd(fd)) return -1;
-	if (!is_user_vaddr(buffer)) exit_s(-1);
 	char tmp[size];
 	if (fd==0){
 		for (int i=1;i<= (int) size;i++){
@@ -257,6 +265,7 @@ read_s (int fd, void *buffer, unsigned size){
 	}
 	else if (fd == 1) return -1;
 	else {
+		is_correct_addr(buffer);
 		struct file* file = thread_current()->open_file[fd];
 		if (file == NULL) return -1;
 		return file_read(file, buffer, size);
@@ -266,13 +275,13 @@ read_s (int fd, void *buffer, unsigned size){
 static int
 write_s (int fd, const void *buffer, unsigned size){
 	if (!check_fd(fd)) return -1;
-	if (!is_user_vaddr(buffer)) exit_s(-1);
 	if (size==0) return 0;
 	if (fd==1){
 		putbuf(buffer, size);
 		return size;
 	}
 	else{
+		is_correct_addr(buffer);
 		struct file* file = thread_current() ->open_file[fd];
 		if (file == NULL) return -1;
 		return file_write(file, buffer, size);		
