@@ -69,7 +69,9 @@ process_create_initd (const char *file_name) {
 	struct fork_args args;
 	args.parent = thread_current ();
 	args.additional = fn_copy;
-	tid = thread_create (file_name, PRI_DEFAULT, initd, &args);
+	char* cut_name;
+	cut_name = strtok_r(cut_name, " ", &cut_name);
+	tid = thread_create (cut_name, PRI_DEFAULT, initd, &args);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
