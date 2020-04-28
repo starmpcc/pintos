@@ -904,6 +904,9 @@ get_child_info (tid_t child_tid) {
 	struct list_elem *i;
 	struct child_info *cinfo;
 
+	if (list_empty (&children_info))
+		return NULL;
+
 	for (i = list_front (&children_info); i != list_end (&children_info); i = list_next (i))
 	{
 		cinfo = list_entry (i, struct child_info, elem);

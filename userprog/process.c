@@ -35,14 +35,17 @@ static void __do_fork (void *);
 static void
 process_init (struct thread *parent) {
 	struct thread *curr = thread_current ();
-	curr->parent = parent;
+	if (parent != NULL)
+	{
+		curr->parent = parent;
 
-	// Create new child_info in shared state children_info
-	lock_acquire (&children_info_lock);
-	struct child_info *cinfo = new_child_info ();
-	cinfo->tid = curr->tid;
-	cinfo->parent_tid = parent->tid;
-	lock_release (&children_info_lock);
+		// Create new child_info in shared state children_info
+		lock_acquire (&children_info_lock);
+		struct child_info *cinfo = new_child_info ();
+		cinfo->tid = curr->tid;
+		cinfo->parent_tid = parent->tid;
+		lock_release (&children_info_lock);
+	}
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -280,23 +283,26 @@ process_wait (tid_t child_tid) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
+	struct thread *parent = curr->parent;
 
-	// Print termination message when user process terminates
-	if (curr->tid != 0)
-		// TODO(chanil): check better way of checking kernel thread
-		// Not idle thread, which means user thread.
+	if (curr->pml4 != NULL)
+		// Print termination message when user process terminates
 		printf ("%s: exit(%d)\n", curr->name, curr->exitcode);
 
-	struct thread *parent = curr->parent;
-	lock_acquire (&children_info_lock);
-	struct child_info *cinfo = get_child_info(curr->tid);
-	lock_release (&children_info_lock);
-	if (parent != NULL && cinfo != NULL && parent->tid == cinfo->parent_tid)
+	// Check waiting process
+	if (parent != NULL)
 	{
-		// Update exit status for this tid
-		cinfo->exitcode = curr->exitcode;
-		// sema up for unblock or enable wait syscall
-		sema_up (&cinfo->sema);
+		lock_acquire (&children_info_lock);
+		struct child_info *cinfo = get_child_info(curr->tid);
+		lock_release (&children_info_lock);
+
+		if (cinfo != NULL && parent->tid == cinfo->parent_tid)
+		{
+			// Update exit status for this tid
+			cinfo->exitcode = curr->exitcode;
+			// sema up for unblock or enable wait syscall
+			sema_up (&cinfo->sema);
+		}
 	}
 
 	process_cleanup ();
