@@ -631,12 +631,16 @@ init_thread (struct thread *t, const char *name, int priority) {
 	ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
 	ASSERT (name != NULL);
 
-	char* cut_name;
-	cut_name = strtok_r(name, " ", &cut_name);
+	#ifdef USERPROG
+		char* cut_name;
+		cut_name = strtok_r(name, " ", &cut_name);
+		name = cut_name;
+	#endif
 
 	memset (t, 0, sizeof *t);
 	t->status = THREAD_BLOCKED;
-	strlcpy (t->name, cut_name, sizeof t->name);
+	strlcpy (t->name, name, sizeof t->name);
+
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->blocking_lock = NULL;
