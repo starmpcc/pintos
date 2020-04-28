@@ -118,6 +118,7 @@ struct thread {
 	struct file* open_file[32];
 	//CAUTION: 32 is temporal value
 	int fd_max;
+	struct file* file_itself;
 
 // fork related
 	struct thread *parent;
