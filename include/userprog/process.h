@@ -13,6 +13,7 @@ void process_activate (struct thread *next);
 struct fork_args  {
   struct thread *parent;
   void *additional;
+  struct semaphore return_sema;
 };
 
 #endif /* userprog/process.h */

@@ -70,11 +70,15 @@ process_create_initd (const char *file_name) {
 	struct fork_args args;
 	args.parent = thread_current ();
 	args.additional = fn_copy;
+	sema_init (&args.return_sema, 0);
+
 	char* cut_name;
 	cut_name = strtok_r(file_name, " ", &cut_name);
 	tid = thread_create (cut_name, PRI_DEFAULT, initd, &args);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
+	else
+		sema_down (&args.return_sema);
 	return tid;
 }
 
@@ -89,6 +93,7 @@ initd (void *aux) {
 #endif
 
 	process_init (parent);
+	sema_up (&args->return_sema);
 
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -103,8 +108,11 @@ process_fork (const char *name, struct intr_frame *if_) {
 	struct fork_args args;
 	args.parent = thread_current ();
 	args.additional = if_;
-	return thread_create (name,
+	sema_init (&args.return_sema, 0);
+	tid_t child_tid = thread_create (name,
 			PRI_DEFAULT, __do_fork, &args);
+	sema_down (&args.return_sema);
+	return child_tid;
 }
 
 #ifndef VM
@@ -176,15 +184,16 @@ __do_fork (void *aux) {
 		goto error;
 #endif
 
-	/* TODO: Your code goes here.
-	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
-	 * TODO:       in include/filesys/file.h. Note that parent should not return
-	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
-
+	/* Your code goes here.
+	 * Hint) To duplicate the file object, use `file_duplicate`
+	 *       in include/filesys/file.h. Note that parent should not return
+	 *       from the fork() until this function successfully duplicates
+	 *       the resources of parent.*/
 	process_init (parent);
-	// TODO(chanil): iterate fd_file_list of parent process, set fd_file_list of current process PCB after file_duplicate
 	fork_file(current, parent);
+
+	sema_up (&args->return_sema);
+
 	/* Finally, switch to the newly created process. */
 	if (succ)
 		if_.R.rax = 0;
