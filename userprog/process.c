@@ -129,13 +129,11 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	 *    NEWPAGE. */
 	newpage = palloc_get_page (PAL_USER);
 
-	/* 4. TODO: Duplicate parent's page to the new page and
-	 *    TODO: check whether parent's page is writable or not (set WRITABLE
-	 *    TODO: according to the result). */
+	/* 4. Duplicate parent's page to the new page and
+	 *    check whether parent's page is writable or not (set WRITABLE
+	 *    according to the result). */
 	memcpy (newpage, parent_page, PGSIZE);
-	//writable = vtop (parent_page) & PTE_W;
-	// TODO(chanil): handle proper way of parent page's writable
-	writable = true;
+	writable = is_writable(pte);
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
