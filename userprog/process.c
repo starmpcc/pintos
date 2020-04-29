@@ -522,8 +522,10 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	t->file_itself = file;
-	file_deny_write(file);
+	if (file != NULL){
+		t->file_itself = file;
+		file_deny_write(file);
+	}
 	return success;
 }
 
