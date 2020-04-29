@@ -144,42 +144,10 @@ syscall_handler (struct intr_frame *f) {
 
 //syscall support macros
 #define MAX_FILE_NAME 14
-#define MAX_OPEN_FILE 64 //temporary
 #define EOF (-1)
 //syscall support variables
-static struct inode* opened_file_inode[MAX_OPEN_FILE];
-static int opened_file_cnt[MAX_OPEN_FILE] = {0,};
-int opened_file_number=0;
+
 //syscall support functions
-static void
-open_global(struct file* file){
-	int flag = 0;
-	for (int i = 1; i  <=opened_file_number;i++){
-		if (file->inode == opened_file_inode[i]){
-			flag=1;
-			break;
-		}
-	}
-	if (flag==0){
-		opened_file_number++;
-		opened_file_inode[opened_file_number-1] = file->inode;
-		opened_file_cnt[opened_file_number-1]++;
-	}
-}
-
-static void
-close_global(struct file* file){
-	for (int i = 1; i  <=opened_file_number;i++){
-		if (file->inode == opened_file_inode[i]){
-			opened_file_cnt[i]--;
-			if (opened_file_cnt[i]==0){
-				file_close(file);
-			}
-			break;
-		}
-	}
-}
-
 
 static bool
 check_fd(int fd){
@@ -193,7 +161,6 @@ fork_file(struct thread* current, struct thread* parent){
 	for (int i=1; i<=parent->fd_max;i++){
 		if (parent->open_file[i]!=NULL) {
 			current->open_file[i] = file_duplicate(parent->open_file[i]);
-			open_global(current->open_file[i]);
 		}
 	}
 	current->fd_max = parent->fd_max;
@@ -235,7 +202,6 @@ static bool
 create_s (const char *file, unsigned inital_size){
 	is_correct_addr((void*) file);
 	if (strlen(file)>MAX_FILE_NAME) return false;
-	//need to check file vaildation
 	return filesys_create (file, (off_t)inital_size);
 }
 
@@ -254,7 +220,6 @@ open_s (const char *file){
 	struct file* file_struct = filesys_open(file);
 	if (file_struct == NULL) return -1;
 	thread_current()->open_file[fd] = file_struct;
-	open_global(file_struct);
 	return fd;
 }
 
@@ -324,6 +289,5 @@ close_s (int fd){
 	if (!check_fd(fd)) return;
 	struct file* file = thread_current() ->open_file[fd];
 	if (file==NULL) return ;
-	close_global(file);
 	thread_current()->open_file[fd] = NULL;
 }

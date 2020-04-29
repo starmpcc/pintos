@@ -29,6 +29,8 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 #define NUM_PRI PRI_MAX-PRI_MIN+1
+#define MAX_OPEN_FILE 128
+
 
 struct child_info {
 	tid_t tid;
@@ -115,8 +117,7 @@ struct thread {
 #endif
 
 //for 2 userprog
-	struct file* open_file[32];
-	//CAUTION: 32 is temporal value
+	struct file* open_file[MAX_OPEN_FILE];
 	int fd_max;
 	struct file* file_itself;
 
