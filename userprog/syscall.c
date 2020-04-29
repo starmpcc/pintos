@@ -36,6 +36,7 @@ static void seek_s (int fd, unsigned position);
 static unsigned tell_s (int fd);
 static void close_s (int fd);
 
+static void is_correct_addr(void* ptr);
 
 /* System call.
  *
@@ -79,6 +80,7 @@ syscall_handler (struct intr_frame *f) {
 			// printf("forking thread name %s\n", thread_current ()->name); // > "fork-once"
 			// NOTE(chanil): I don't understand why f instead of &thread_current ()->tf
 			//f->R.rax = process_fork ((const char*)f->R.rdi, &thread_current ()->tf);
+			is_correct_addr((void*)f->R.rdi);
 			f->R.rax = process_fork ((const char*)f->R.rdi, f);
 			break;
 		case SYS_EXEC:
@@ -218,6 +220,7 @@ exit_s (int status){
 
 static int
 exec_s (char *input) {
+	is_correct_addr((void*) input);
 	/* Make a copy of input from user memory to kernel page. */
 	char *in_copy;
 	in_copy = palloc_get_page (0);
