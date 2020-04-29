@@ -188,7 +188,7 @@ void thread_sleep (int64_t wakeup_tick, struct thread* thread);
 void bucket_push (struct thread *);
 void bucket_remove (struct thread *);
 
-struct child_info *new_child_info ();
+struct child_info *new_child_info (void);
 struct child_info *get_child_info (tid_t child_tid);
 
 #endif /* threads/thread.h */

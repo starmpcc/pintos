@@ -73,7 +73,7 @@ process_create_initd (const char *file_name) {
 	sema_init (&args.return_sema, 0);
 
 	char* cut_name;
-	cut_name = strtok_r(file_name, " ", &cut_name);
+	cut_name = strtok_r((char *) file_name, " ", &cut_name);
 	tid = thread_create (cut_name, PRI_DEFAULT, initd, &args);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
@@ -163,7 +163,7 @@ __do_fork (void *aux) {
 	struct fork_args *args = (struct fork_args *) aux;
 	struct thread *parent = args->parent;
 	struct thread *current = thread_current ();
-	struct intr_frame *parent_if = (struct intr_fram *) args->additional;
+	struct intr_frame *parent_if = (struct intr_frame *) args->additional;
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
@@ -195,9 +195,8 @@ __do_fork (void *aux) {
 	sema_up (&args->return_sema);
 
 	/* Finally, switch to the newly created process. */
-	if (succ)
-		if_.R.rax = 0;
-		do_iret (&if_);
+	if (succ) if_.R.rax = 0;
+	do_iret (&if_);
 error:
 	thread_exit ();
 }
@@ -654,7 +653,7 @@ setup_stack (struct intr_frame *if_) {
 			uint64_t argc = if_->R.rdi; //argc
 			uint64_t stack_pos = USER_STACK;
 			uint64_t args_pos[32];
-			for (int i=0;i<argc;i++){
+			for (int i=0;i<(int) argc;i++){
 				size_t tmplen = strlen(argv[i]);
 				stack_pos = stack_pos - tmplen -1;
 				strlcpy((char*) stack_pos, argv[i], 128); //128 is max length of argument
@@ -665,9 +664,9 @@ setup_stack (struct intr_frame *if_) {
 			//stack_pos = (uint8_t[]) 0
 			for (int i = argc;i>=0;i--){
 				stack_pos-=8;
-				if (i==argc) *(char*)(stack_pos) = 0;
+				if (i == (int) argc) *(char*)(stack_pos) = 0;
 				else{
-					memcpy(stack_pos, &(args_pos[i]),8);
+					memcpy((void *) stack_pos, &(args_pos[i]),8);
 				}
 				
 			}
