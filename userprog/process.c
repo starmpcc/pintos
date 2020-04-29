@@ -71,7 +71,7 @@ process_create_initd (const char *file_name) {
 	args.parent = thread_current ();
 	args.additional = fn_copy;
 	char* cut_name;
-	cut_name = strtok_r(cut_name, " ", &cut_name);
+	cut_name = strtok_r(file_name, " ", &cut_name);
 	tid = thread_create (cut_name, PRI_DEFAULT, initd, &args);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
