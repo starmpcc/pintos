@@ -19,6 +19,7 @@
 #include "threads/vaddr.h"
 #include "threads/synch.h"
 #include "intrinsic.h"
+#include "userprog/syscall.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -185,7 +186,7 @@ __do_fork (void *aux) {
 
 	process_init (parent);
 	// TODO(chanil): iterate fd_file_list of parent process, set fd_file_list of current process PCB after file_duplicate
-
+	fork_file(current, parent);
 	/* Finally, switch to the newly created process. */
 	if (succ)
 		if_.R.rax = 0;
@@ -306,7 +307,9 @@ process_exit (void) {
 			sema_up (&cinfo->sema);
 		}
 	}
-
+	if (curr->file_itself){
+		file_close(curr->file_itself);
+	}
 	process_cleanup ();
 }
 
@@ -512,7 +515,8 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	t->file_itself = file;
+	file_deny_write(file);
 	return success;
 }
 

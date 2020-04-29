@@ -188,10 +188,13 @@ check_fd(int fd){
 
 void
 fork_file(struct thread* current, struct thread* parent){
-	for (int i=0; i<parent->fd_max -1 ;i++){
-		current->open_file[i] = file_duplicate(parent->open_file[i]);
-		open_global(current->open_file[i]);
+	for (int i=1; i<=parent->fd_max;i++){
+		if (parent->open_file[i]!=NULL) {
+			current->open_file[i] = file_duplicate(parent->open_file[i]);
+			open_global(current->open_file[i]);
+		}
 	}
+	current->fd_max = parent->fd_max;
 }
 
 static void
