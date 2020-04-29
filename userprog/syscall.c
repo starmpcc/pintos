@@ -25,6 +25,7 @@ void syscall_entry (void);
 
 static void halt_s (void);
 static int exit_s (int status);
+static int exec_s (char *input);
 static bool create_s (const char*file, unsigned inital_size);
 static bool remove_s (const char *file);
 static int open_s (const char* file);
@@ -81,7 +82,7 @@ syscall_handler (struct intr_frame *f) {
 			f->R.rax = process_fork ((const char*)f->R.rdi, f);
 			break;
 		case SYS_EXEC:
-			f->R.rax = process_exec ((void *)f->R.rdi);
+			f->R.rax = exec_s ((char *)f->R.rdi);
 			break;
 		case SYS_WAIT:
 			f->R.rax = process_wait ((tid_t)f->R.rdi);
@@ -210,6 +211,18 @@ exit_s (int status){
 	thread_current ()->exitcode = status;
 	thread_exit();
 	return status;
+}
+
+static int
+exec_s (char *input) {
+	/* Make a copy of input from user memory to kernel page. */
+	char *in_copy;
+	in_copy = palloc_get_page (0);
+	if (in_copy == NULL)
+		return TID_ERROR;
+	strlcpy (in_copy, input, PGSIZE);
+
+	return process_exec(in_copy);
 }
 
 static bool 
