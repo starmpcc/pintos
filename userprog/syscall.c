@@ -195,11 +195,24 @@ fork_file(struct thread* current, struct thread* parent){
 			struct thread_file* current_thread_file = (struct thread_file*) malloc (sizeof (struct thread_file));
 			current_thread_file -> fd = parent_thread_file -> fd;
 			current_thread_file -> file = file_duplicate (parent_thread_file -> file);
-			list_push_back(&current -> open_file, &current_thread_file -> elem);
+			list_insert_ordered(&current ->open_file, &current_thread_file ->elem, thread_fd_less, NULL);
 
 		}
 		current->fd_max = parent->fd_max;
 	}
+}
+
+void
+close_all(struct list* l){
+	if (list_empty (l)) return;
+	while (!list_empty (l))
+	{
+		struct list_elem *e = list_pop_front (l);
+		struct thread_file* tf = list_entry (e, struct thread_file, elem);
+		file_close (tf->file);
+		free(tf);
+	}
+
 }
 
 static void
@@ -265,7 +278,6 @@ open_s (const char *file){
 
 	is_correct_addr((void*) file);
 	int fd=++thread_current()->fd_max;
-	ASSERT(fd<32);
 	struct file* file_struct = filesys_open(file);
 	if (file_struct == NULL) return -1;
 	struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));

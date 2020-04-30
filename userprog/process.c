@@ -299,6 +299,7 @@ process_exit (void) {
 	if (curr->file_itself != NULL){
 		file_close(curr->file_itself);
 	}
+	close_all(&curr->open_file);
 	if (curr->pml4 != NULL)
 		// Print termination message when user process terminates
 		printf ("%s: exit(%d)\n", curr->name, curr->exitcode);
