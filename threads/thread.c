@@ -645,6 +645,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->parent = NULL;
 
 	t->magic = THREAD_MAGIC;
+	list_init (&t->open_file);
 
 	//for advanced scheduler
 	if (thread_mlfqs){
