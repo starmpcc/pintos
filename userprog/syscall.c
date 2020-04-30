@@ -69,19 +69,14 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f) {
-	// TODO: Your implementation goes here.
 	switch(f->R.rax){
 		case SYS_HALT:
 			halt_s();
 			break;
 		case SYS_EXIT:
-			// TODO(chanil): setting exitcode to current thread?
 			f->R.rax = exit_s((int)f->R.rdi);
 			break;
 		case SYS_FORK:
-			// printf("forking thread name %s\n", thread_current ()->name); // > "fork-once"
-			// NOTE(chanil): I don't understand why f instead of &thread_current ()->tf
-			//f->R.rax = process_fork ((const char*)f->R.rdi, &thread_current ()->tf);
 			is_correct_addr((void*)f->R.rdi);
 			f->R.rax = process_fork ((const char*)f->R.rdi, f);
 			break;
