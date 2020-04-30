@@ -293,7 +293,9 @@ void
 process_exit (void) {
 	struct thread *curr = thread_current ();
 	struct thread *parent = curr->parent;
-
+	if (curr->file_itself != NULL){
+		file_close(curr->file_itself);
+	}
 	if (curr->pml4 != NULL)
 		// Print termination message when user process terminates
 		printf ("%s: exit(%d)\n", curr->name, curr->exitcode);
@@ -313,9 +315,7 @@ process_exit (void) {
 			sema_up (&cinfo->sema);
 		}
 	}
-	if (curr->file_itself){
-		file_close(curr->file_itself);
-	}
+
 	process_cleanup ();
 }
 
