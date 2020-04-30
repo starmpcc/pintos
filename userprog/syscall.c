@@ -19,6 +19,7 @@
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 void syscall_entry (void);
 
 //syscall functions
@@ -35,6 +36,7 @@ static int write_s (int fd, const void *buffer, unsigned size);
 static void seek_s (int fd, unsigned position);
 static unsigned tell_s (int fd);
 static void close_s (int fd);
+static int dup2_s(int oldfd, int newfd);
 
 static void is_correct_addr(void* ptr);
 
@@ -135,6 +137,7 @@ syscall_handler (struct intr_frame *f) {
 			break;
 	/* Extra for Project 2 */
 		case SYS_DUP2:
+			f->R.rax = dup2_s ((int)f->R.rdi, (int) f->R.rsi);
 			break;
 		NOT_REACHED();
 	}
@@ -148,22 +151,60 @@ syscall_handler (struct intr_frame *f) {
 //syscall support variables
 
 //syscall support functions
+static bool
+thread_fd_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
+	int a_fd = list_entry(a, struct thread_file, elem)->fd;
+	int b_fd = list_entry(b, struct thread_file, elem)->fd;
+	return a_fd < b_fd;
+}
 
 static bool
 check_fd(int fd){
-	int fd_max = thread_current() ->fd_max;
-	if (fd<0 || fd> MAX_OPEN_FILE || fd>fd_max) return 0;
+	int fd_max = thread_current()->fd_max;
+	if (fd<0 || fd>fd_max) return 0;
 	return 1;
+}
+
+static struct
+file* get_file(int fd){
+	struct thread* t = thread_current ();
+	if (!list_empty (&t->open_file)){
+		for (struct list_elem* i = list_front(&t->open_file); i!=list_end(&t->open_file); i = list_next(i) ){
+			struct thread_file* thread_file = list_entry (i, struct thread_file, elem);
+			if (fd == thread_file->fd) return thread_file -> file;
+		}
+	}
+	return NULL;
+}
+
+static void
+close_file(int fd){
+	struct thread* t = thread_current ();
+	if (!list_empty (&t->open_file)){
+		for (struct list_elem* i = list_front(&t->open_file); i!=list_end(&t->open_file); i = list_next(i) ){
+			struct thread_file* thread_file = list_entry (i, struct thread_file, elem);
+			if (fd == thread_file->fd){
+				file_close(thread_file -> file);
+				list_remove(&thread_file -> elem);
+				return;
+			}
+		}
+	}
 }
 
 void
 fork_file(struct thread* current, struct thread* parent){
-	for (int i=1; i<=parent->fd_max;i++){
-		if (parent->open_file[i]!=NULL) {
-			current->open_file[i] = file_duplicate(parent->open_file[i]);
+	if (!list_empty (&parent->open_file)){
+		for (struct list_elem* i = list_front(&parent->open_file); i!=list_end(&parent->open_file); i = list_next(i) ){
+			struct thread_file* parent_thread_file = list_entry (i, struct thread_file, elem);
+			struct thread_file* current_thread_file = (struct thread_file*) malloc (sizeof (struct thread_file));
+			current_thread_file -> fd = parent_thread_file -> fd;
+			current_thread_file -> file = file_duplicate (parent_thread_file -> file);
+			list_push_back(&current -> open_file, &current_thread_file -> elem);
+
 		}
+		current->fd_max = parent->fd_max;
 	}
-	current->fd_max = parent->fd_max;
 }
 
 static void
@@ -212,21 +253,37 @@ remove_s (const char *file){
 	return filesys_remove(file);
 }
 
+//temporary test ftn
+static void
+test(struct list* l){
+	if (!list_empty (l)){
+		for (struct list_elem* i = list_front(l); i!=list_end(l); i = list_next(i) ){
+			struct thread_file* thread_file = list_entry (i, struct thread_file, elem);
+			printf("%d\t", thread_file->fd);
+		}
+	}
+	printf("\n");
+}
+
 static int 
 open_s (const char *file){
+
 	is_correct_addr((void*) file);
 	int fd=++thread_current()->fd_max;
 	ASSERT(fd<32);
 	struct file* file_struct = filesys_open(file);
 	if (file_struct == NULL) return -1;
-	thread_current()->open_file[fd] = file_struct;
+	struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
+	tf->fd = fd;
+	tf->file = file_struct;
+	list_insert_ordered(&thread_current () -> open_file, &tf->elem, thread_fd_less, NULL);
 	return fd;
 }
 
 static int
 filesize_s (int fd){
 	if (!check_fd(fd)) return -1;
-	struct file* file = thread_current()->open_file[fd];
+	struct file* file = get_file (fd);
 	if (file == NULL) return -1;
 	return file_length(file);
 }
@@ -249,7 +306,7 @@ read_s (int fd, void *buffer, unsigned size){
 	else if (fd == 1) return -1;
 	else {
 		is_correct_addr((void*) buffer);
-		struct file* file = thread_current()->open_file[fd];
+		struct file* file = get_file (fd);
 		if (file == NULL) return -1;
 		return file_read(file, buffer, size);
 	}
@@ -265,7 +322,7 @@ write_s (int fd, const void *buffer, unsigned size){
 	}
 	else{
 		is_correct_addr((void*) buffer);
-		struct file* file = thread_current() ->open_file[fd];
+		struct file* file = get_file (fd);
 		if (file == NULL) return -1;
 		return file_write(file, buffer, size);		
 	}
@@ -273,21 +330,38 @@ write_s (int fd, const void *buffer, unsigned size){
 
 static void
 seek_s (int fd, unsigned position) {
-	struct file* file = thread_current() ->open_file[fd];
+	struct file* file = get_file (fd);
 	file_seek(file, position);
 	return;
 }
 
 static unsigned
 tell_s (int fd){
-	struct file* file = thread_current() ->open_file[fd];
+	struct file* file = get_file (fd);
 	return file_tell(file);
 }
 
 static void
 close_s (int fd){
 	if (!check_fd(fd)) return;
-	struct file* file = thread_current() ->open_file[fd];
+	struct file* file = get_file (fd);
 	if (file==NULL) return ;
-	thread_current()->open_file[fd] = NULL;
+	close_file(fd);
+}
+
+static int
+dup2_s (int oldfd, int newfd){
+	if (!check_fd(oldfd)) return -1;
+	if (oldfd == newfd) return newfd;
+	struct thread* t = thread_current();
+	struct file* file = get_file (oldfd);
+	if (file==NULL) return -1;
+	if (newfd> t->fd_max){
+		t->fd_max = newfd;
+	}
+	struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
+	tf->fd = newfd;
+	tf->file = file;
+	list_insert_ordered(&t->open_file, &tf->elem, thread_fd_less, NULL);
+	return newfd;
 }

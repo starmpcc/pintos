@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "threads/interrupt.h"
 #include "threads/synch.h"
+#include <stdbool.h>
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -117,7 +118,7 @@ struct thread {
 #endif
 
 //for 2 userprog
-	struct file* open_file[MAX_OPEN_FILE];
+	struct list open_file;
 	int fd_max;
 	struct file* file_itself;
 
@@ -145,6 +146,11 @@ struct priority_bucket {
 	struct list_elem elem;
 };
 
+struct thread_file {
+	struct file* file;
+	int fd;
+	struct list_elem elem;
+};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
