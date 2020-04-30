@@ -152,8 +152,9 @@ thread_init (void) {
 void
 thread_start (void) {
 	/* Create the idle thread. */
-
-	priority_buckets = (struct priority_bucket* ) palloc_get_multiple(PAL_ZERO, sizeof(struct priority_bucket)*64);
+	size_t req_bucket_space = sizeof(struct priority_bucket) * 64;
+	size_t req_page_cnt = DIV_ROUND_UP (req_bucket_space, PGSIZE);
+	priority_buckets = (struct priority_bucket *) palloc_get_multiple(PAL_ZERO, req_page_cnt);
 	for (int i = 0; i < NUM_PRI; i++)
 		list_init (&priority_buckets[i].bucket);
 
