@@ -38,7 +38,6 @@ struct child_info {
 	tid_t parent_tid;
 	struct semaphore sema;
 	int exitcode;
-	uint64_t wait_count;
 	struct list_elem elem;
 };
 

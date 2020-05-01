@@ -14,6 +14,7 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
@@ -111,7 +112,8 @@ process_fork (const char *name, struct intr_frame *if_) {
 	sema_init (&args.return_sema, 0);
 	tid_t child_tid = thread_create (name,
 			PRI_DEFAULT, __do_fork, &args);
-	sema_down (&args.return_sema);
+	if (child_tid != TID_ERROR)
+		sema_down (&args.return_sema);
 	return child_tid;
 }
 
@@ -201,6 +203,8 @@ __do_fork (void *aux) {
 	if (succ) if_.R.rax = 0;
 	do_iret (&if_);
 error:
+	sema_up (&args->return_sema);
+	current->exitcode = -1;
 	thread_exit ();
 }
 
@@ -264,9 +268,9 @@ process_exec (void *input) {
  * does nothing. */
 int
 process_wait (tid_t child_tid) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
+	/* Hint) The pintos exit if process_wait (initd), we recommend you
+	 *       to add infinite loop here before
+	 *       implementing the process_wait. */
 	struct thread *curr = thread_current ();
 	int exitcode;
 	struct child_info *cinfo;
@@ -275,8 +279,7 @@ process_wait (tid_t child_tid) {
 	lock_acquire (&children_info_lock);
 	cinfo = get_child_info (child_tid);
 	lock_release (&children_info_lock);
-	if (cinfo == NULL || cinfo->parent_tid != curr->tid
-			|| cinfo->wait_count > 0)
+	if (cinfo == NULL || cinfo->parent_tid != curr->tid)
 		return -1;
 
 	// child_info sema down for wait child killed.
@@ -284,9 +287,11 @@ process_wait (tid_t child_tid) {
 	// Resumed after child kill successfully
 	// or pass directly to here for already killed child.
 
-	// Get exitcode, increment wait_count.
+	// Get exitcode.
 	exitcode = cinfo->exitcode;
-	cinfo->wait_count++;
+
+	list_remove (&cinfo->elem);
+	free (cinfo);
 
 	return exitcode;
 }

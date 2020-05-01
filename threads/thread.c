@@ -8,6 +8,7 @@
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
 #include "devices/timer.h"
@@ -884,13 +885,12 @@ bucket_pointer_more (const struct list_elem *a,
 
 struct child_info *
 new_child_info () {
-	struct child_info *cinfo = (struct child_info *) palloc_get_page(PAL_ZERO);
+	struct child_info *cinfo = (struct child_info *) malloc(sizeof(struct child_info));
 
 	cinfo->tid = NULL;
 	cinfo->parent_tid = NULL;
 	sema_init (&cinfo->sema, 0);
 	cinfo->exitcode = NULL;
-	cinfo->wait_count = 0;
 
 	list_push_back (&children_info, &cinfo->elem);
 	return cinfo;
