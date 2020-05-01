@@ -243,7 +243,7 @@ process_exec (void *input) {
 	success = load (file_name, &_if);
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
+	palloc_free_page (input);
 	if (!success)
 		return -1;
 
