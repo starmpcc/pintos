@@ -121,6 +121,7 @@ struct thread {
 	struct list open_file;
 	int fd_max;
 	struct file* file_itself;
+	int open_file_cnt;
 
 // fork related
 	struct thread *parent;

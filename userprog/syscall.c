@@ -189,6 +189,7 @@ close_file(int fd){
 
 void
 fork_file(struct thread* current, struct thread* parent){
+	int cnt =0;
 	if (!list_empty (&parent->open_file)){
 		for (struct list_elem* i = list_front(&parent->open_file); i!=list_end(&parent->open_file); i = list_next(i) ){
 			struct thread_file* parent_thread_file = list_entry (i, struct thread_file, elem);
@@ -196,9 +197,13 @@ fork_file(struct thread* current, struct thread* parent){
 			current_thread_file -> fd = parent_thread_file -> fd;
 			current_thread_file -> file = file_duplicate (parent_thread_file -> file);
 			list_insert_ordered(&current ->open_file, &current_thread_file ->elem, thread_fd_less, NULL);
-
+			cnt++;
+			if (cnt>=126) break;
 		}
 		current->fd_max = parent->fd_max;
+		current ->open_file_cnt = parent -> open_file_cnt;
+		//for debug multi-oom
+		//printf("thread_name :%s, open file num :%d\n", current->name, cnt);
 	}
 }
 
@@ -261,23 +266,15 @@ remove_s (const char *file){
 	return filesys_remove(file);
 }
 
-//temporary test ftn
-static void
-test(struct list* l){
-	if (!list_empty (l)){
-		for (struct list_elem* i = list_front(l); i!=list_end(l); i = list_next(i) ){
-			struct thread_file* thread_file = list_entry (i, struct thread_file, elem);
-			printf("%d\t", thread_file->fd);
-		}
-	}
-	printf("\n");
-}
 
 static int 
 open_s (const char *file){
 
 	is_correct_addr((void*) file);
-	int fd=++thread_current()->fd_max;
+	struct thread* t= thread_current();
+	if (t->open_file_cnt >126) return -1;
+	t->open_file_cnt++;
+	int fd=++t->fd_max;
 	struct file* file_struct = filesys_open(file);
 	if (file_struct == NULL) return -1;
 	struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
@@ -354,6 +351,7 @@ close_s (int fd){
 	struct file* file = get_file (fd);
 	if (file==NULL) return ;
 	close_file(fd);
+	thread_current() -> open_file_cnt--;
 }
 
 static int

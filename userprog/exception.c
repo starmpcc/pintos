@@ -6,6 +6,8 @@
 #include "threads/thread.h"
 #include "intrinsic.h"
 #include "userprog/syscall.h"
+#include "lib/syscall-nr.h"
+#include "threads/malloc.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -143,8 +145,7 @@ page_fault (struct intr_frame *f) {
 
 	if (user)
 	{
-		struct intr_frame *f;
-		f->R.rax = 1; //exit code
+		f->R.rax = SYS_EXIT;
 		f->R.rdi = -1;
 		syscall_handler(f);
 		return;
