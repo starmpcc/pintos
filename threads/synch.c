@@ -191,9 +191,11 @@ lock_init (struct lock *lock) {
 static void
 donate_priority_for(struct lock *lock) {
 	struct thread* donee = lock->holder;
-	int doner_priority = thread_get_priority ();
+	if (donee == NULL)
+		return;
 
-	if (donee != NULL && doner_priority > lock->max_donated_priority)
+	int doner_priority = thread_get_priority ();
+	if (doner_priority > lock->max_donated_priority)
 	{
 		int donee_priority = thread_get_priority_of (donee);
 
