@@ -89,6 +89,7 @@ static void thread_recalc(void);
 //var mlfqs to make exception when create new thread
 /* Auxiliary comparator for sorted insert to ready_list. */
 static bool bucket_pointer_more (const struct list_elem *, const struct list_elem *, void*);
+static bool lock_priority_less (const struct list_elem *, const struct list_elem *, void*);
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -469,9 +470,9 @@ thread_get_priority_of (struct thread* t) {
 	int donated_priority = 0;
 	if (!list_empty (&t->acquired_locks))
 	{
-		// acquired_locks are sorted descending by max_donated_priority
-		struct lock *lock = list_entry (list_front (&t->acquired_locks), struct lock, elem);
-		ASSERT (lock->holder == t);
+		// pick highest max_donated_priority from acquired_locks.
+		struct list_elem *highest = list_max (&t->acquired_locks, lock_priority_less, NULL);
+		struct lock *lock = list_entry (highest, struct lock, elem);
 		donated_priority = lock->max_donated_priority;
 	}
 	return MAX(t->priority, donated_priority);
@@ -881,6 +882,14 @@ bucket_pointer_more (const struct list_elem *a,
 	struct priority_bucket* b_pointer = list_entry (b, struct priority_bucket, elem);
 	// Decreasing order of array element pointer of buckets
 	return a_pointer > b_pointer;
+}
+
+static bool
+lock_priority_less (const struct list_elem *a, const struct list_elem *b,
+		void* aux UNUSED) {
+	int a_pri = list_entry (a, struct lock, elem)->max_donated_priority;
+	int b_pri = list_entry (b, struct lock, elem)->max_donated_priority;
+	return a_pri < b_pri;
 }
 
 struct child_info *
