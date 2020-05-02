@@ -425,6 +425,23 @@ void
 thread_exit (void) {
 	ASSERT (!intr_context ());
 
+	struct thread *curr = thread_current ();
+	// Cleanup lock related
+	struct lock *acquired_lock;
+	struct list_elem *i;
+	if (!list_empty (&curr->acquired_locks))
+	{
+		for (i = list_front (&curr->acquired_locks); i != list_end (&curr->acquired_locks); i = list_next (i))
+		{
+			acquired_lock = list_entry (i, struct lock, elem);
+			lock_release (acquired_lock);
+		}
+	}
+
+	if (curr->blocking_lock != NULL) {
+		list_remove (&curr->elem);
+	}
+
 #ifdef USERPROG
 	process_exit ();
 #endif
