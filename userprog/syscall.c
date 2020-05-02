@@ -295,8 +295,8 @@ filesize_s (int fd){
 static int
 read_s (int fd, void *buffer, unsigned size){
 	if (!check_fd(fd)) return -1;
-	char tmp[size];
 	if (fd==0){
+		char tmp[size];
 		for (int i=1;i<= (int) size;i++){
 			tmp[i] = (char) input_getc();
 			if (tmp[i]==EOF){
