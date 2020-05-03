@@ -21,7 +21,7 @@
 #include "threads/palloc.h"
 #include "threads/malloc.h"
 void syscall_entry (void);
-
+extern struct lock filesys_lock;
 //syscall functions
 
 static void halt_s (void);
@@ -39,7 +39,7 @@ static void close_s (int fd);
 static int dup2_s(int oldfd, int newfd);
 
 static void is_correct_addr(void* ptr);
-
+struct thread_file* get_tf(int fd);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -153,6 +153,27 @@ thread_fd_less (const struct list_elem *a, const struct list_elem *b, void *aux 
 	return a_fd < b_fd;
 }
 
+static void
+init_stdio(void){
+	struct thread* t = thread_current();
+	if (!list_empty(&t->open_file)) return;
+	struct thread_file* stdin = (struct thread_file *) malloc (sizeof (struct thread_file));
+	stdin->file = NULL;
+	stdin->fd = 0;
+	stdin->dup_tag = -1;
+	stdin->dup_cnt = 0;
+	stdin->std = 0;
+	struct thread_file* stdout = (struct thread_file *) malloc (sizeof (struct thread_file));
+	stdout->file = NULL;
+	stdout->fd = 1;
+	stdout->dup_tag = -1;
+	stdout->dup_cnt = 0;
+	stdout->std = 1;
+	list_insert_ordered (&t->open_file, &stdin->elem, thread_fd_less, NULL);
+	list_insert_ordered (&t->open_file, &stdout->elem, thread_fd_less, NULL);
+	t->open_file_cnt = 2;
+}
+
 static bool
 check_fd(int fd){
 	int fd_max = thread_current()->fd_max;
@@ -160,13 +181,25 @@ check_fd(int fd){
 	return 1;
 }
 
-static struct
-file* get_file(int fd){
+static struct file*
+get_file(int fd){
 	struct thread* t = thread_current ();
 	if (!list_empty (&t->open_file)){
 		for (struct list_elem* i = list_front(&t->open_file); i!=list_end(&t->open_file); i = list_next(i) ){
 			struct thread_file* thread_file = list_entry (i, struct thread_file, elem);
 			if (fd == thread_file->fd) return thread_file -> file;
+		}
+	}
+	return NULL;
+}
+
+struct thread_file*
+get_tf(int fd){
+	struct thread* t = thread_current ();
+	if (!list_empty (&t->open_file)){
+		for (struct list_elem* i = list_front(&t->open_file); i!=list_end(&t->open_file); i = list_next(i) ){
+			struct thread_file* thread_file = list_entry (i, struct thread_file, elem);
+			if (fd == thread_file->fd) return thread_file;
 		}
 	}
 	return NULL;
@@ -179,8 +212,15 @@ close_file(int fd){
 		for (struct list_elem* i = list_front(&t->open_file); i!=list_end(&t->open_file); i = list_next(i) ){
 			struct thread_file* thread_file = list_entry (i, struct thread_file, elem);
 			if (fd == thread_file->fd){
-				file_close(thread_file -> file);
+				if (thread_file -> dup_cnt == 0){
+					if (thread_file -> std == -1)
+						file_close(thread_file -> file);
+				}
+				else
+					thread_file ->dup_cnt--;
+
 				list_remove(&thread_file -> elem);
+				free(thread_file);
 				return;
 			}
 		}
@@ -190,20 +230,28 @@ close_file(int fd){
 void
 fork_file(struct thread* current, struct thread* parent){
 	int cnt =0;
+	ASSERT(list_empty (&current->open_file));
 	if (!list_empty (&parent->open_file)){
 		for (struct list_elem* i = list_front(&parent->open_file); i!=list_end(&parent->open_file); i = list_next(i) ){
-			struct thread_file* parent_thread_file = list_entry (i, struct thread_file, elem);
-			struct thread_file* current_thread_file = (struct thread_file*) malloc (sizeof (struct thread_file));
-			current_thread_file -> fd = parent_thread_file -> fd;
-			current_thread_file -> file = file_duplicate (parent_thread_file -> file);
-			list_insert_ordered(&current ->open_file, &current_thread_file ->elem, thread_fd_less, NULL);
+			struct thread_file* parent_tf = list_entry (i, struct thread_file, elem);
+			struct thread_file* current_tf = (struct thread_file*) malloc (sizeof (struct thread_file));
+			ASSERT(parent_tf!=NULL);
+			current_tf -> fd = parent_tf -> fd;
+			if (parent_tf -> file != NULL)
+				current_tf -> file = file_duplicate (parent_tf -> file);
+			else
+				current_tf->file = NULL;
+			current_tf->dup_tag = parent_tf ->dup_tag;
+
+			current_tf->dup_cnt = parent_tf ->dup_cnt;
+			current_tf->std = parent_tf->std;
+
+			list_insert_ordered(&current ->open_file, &current_tf ->elem, thread_fd_less, NULL);
 			cnt++;
-			if (cnt>=126) break;
+			if (cnt>=128) break;
 		}
 		current->fd_max = parent->fd_max;
 		current ->open_file_cnt = parent -> open_file_cnt;
-		//for debug multi-oom
-		//printf("thread_name :%s, open file num :%d\n", current->name, cnt);
 	}
 }
 
@@ -214,10 +262,18 @@ close_all(struct list* l){
 	{
 		struct list_elem *e = list_pop_front (l);
 		struct thread_file* tf = list_entry (e, struct thread_file, elem);
-		file_close (tf->file);
-		free(tf);
-	}
+		if (tf -> dup_cnt == 0){
+			if (tf -> std == -1)
+				file_close(tf -> file);
+		}
+		else
+			tf ->dup_cnt--;
 
+		list_remove(&tf -> elem);
+		free(tf);
+
+	}
+	ASSERT(list_empty(l));
 }
 
 static void
@@ -225,6 +281,21 @@ is_correct_addr(void* ptr){
 	if (ptr == NULL) exit_s(-1);
 	if (!is_user_vaddr(ptr)) exit_s(-1);
 	if (pml4e_walk(thread_current()->pml4, (const uint64_t) ptr, 0)==NULL) exit_s(-1);
+}
+
+static int
+get_fd(int fd){
+	struct thread* t = thread_current ();
+	if (!list_empty (&t->open_file)){
+		for (struct list_elem* i = list_front(&t->open_file); i!=list_end(&t->open_file); i = list_next(i) ){
+			struct thread_file* thread_file = list_entry (i, struct thread_file, elem);
+			if (thread_file->fd == fd){
+				if (thread_file -> dup_tag != -1) return thread_file -> dup_tag;
+				else return fd;
+			}
+		}
+	}
+	return fd;
 }
 
 static void
@@ -269,10 +340,10 @@ remove_s (const char *file){
 
 static int 
 open_s (const char *file){
-
+	init_stdio();
 	is_correct_addr((void*) file);
 	struct thread* t= thread_current();
-	if (t->open_file_cnt >126) return -1;
+	if (t->open_file_cnt >128) return -1;
 	t->open_file_cnt++;
 	int fd=++t->fd_max;
 	lock_acquire(&filesys_lock);
@@ -282,6 +353,9 @@ open_s (const char *file){
 	struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
 	tf->fd = fd;
 	tf->file = file_struct;
+	tf -> dup_tag = -1;
+	tf -> dup_cnt = 0;
+	tf -> std = -1;
 	list_insert_ordered(&thread_current () -> open_file, &tf->elem, thread_fd_less, NULL);
 	return fd;
 }
@@ -289,6 +363,7 @@ open_s (const char *file){
 static int
 filesize_s (int fd){
 	if (!check_fd(fd)) return -1;
+	fd = get_fd (fd);
 	struct file* file = get_file (fd);
 	if (file == NULL) return -1;
 	return file_length(file);
@@ -296,8 +371,10 @@ filesize_s (int fd){
 
 static int
 read_s (int fd, void *buffer, unsigned size){
+	init_stdio();
 	if (!check_fd(fd)) return -1;
-	if (fd==0){
+	struct thread_file* tf = get_tf(fd);
+	if (tf ->std == 0){
 		char tmp[size];
 		for (int i=1;i<= (int) size;i++){
 			tmp[i] = (char) input_getc();
@@ -309,7 +386,7 @@ read_s (int fd, void *buffer, unsigned size){
 		strlcpy(buffer, tmp, size);
 		return size;
 	}
-	else if (fd == 1) return -1;
+	else if (tf ->std == 1) return -1;
 	else {
 		is_correct_addr((void*) buffer);
 		struct file* file = get_file (fd);
@@ -320,9 +397,12 @@ read_s (int fd, void *buffer, unsigned size){
 
 static int
 write_s (int fd, const void *buffer, unsigned size){
+	init_stdio();
 	if (!check_fd(fd)) return -1;
 	if (size==0) return 0;
-	if (fd==1){
+	struct thread_file* tf = get_tf (fd);
+	if (tf->std == 0) return -1;
+	else if (tf ->std == 1){
 		putbuf(buffer, size);
 		return size;
 	}
@@ -336,39 +416,61 @@ write_s (int fd, const void *buffer, unsigned size){
 
 static void
 seek_s (int fd, unsigned position) {
+	fd = get_fd (fd);
 	struct file* file = get_file (fd);
+	if (file==NULL) return;
 	file_seek(file, position);
 	return;
 }
 
 static unsigned
 tell_s (int fd){
+	fd = get_fd (fd);
 	struct file* file = get_file (fd);
+	if (file==NULL) return 0;
 	return file_tell(file);
 }
 
 static void
 close_s (int fd){
+	init_stdio();
 	if (!check_fd(fd)) return;
-	struct file* file = get_file (fd);
-	if (file==NULL) return ;
-	close_file(fd);
+	struct thread_file* tf = get_tf (fd);
+	if (tf == NULL) return;
 	thread_current() -> open_file_cnt--;
+
+	close_file(fd);
+
 }
 
 static int
 dup2_s (int oldfd, int newfd){
+	init_stdio();
 	if (!check_fd(oldfd)) return -1;
 	if (oldfd == newfd) return newfd;
 	struct thread* t = thread_current();
-	struct file* file = get_file (oldfd);
-	if (file==NULL) return -1;
+	struct thread_file* oldtf = get_tf (oldfd);
+	if (oldtf == NULL) return -1;
+	struct file* file = oldtf->file;
 	if (newfd> t->fd_max){
 		t->fd_max = newfd;
 	}
+	if (get_tf(newfd)!=NULL) close_file(newfd);
+
 	struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
 	tf->fd = newfd;
-	tf->file = file;
+	tf->dup_tag = oldfd;
+	tf -> dup_cnt = ++oldtf->dup_cnt;
+	tf -> std = oldtf-> std;
+	if (oldtf->std == 0 || oldtf->std == 1){
+		tf->file = NULL;
+	}
+	else {
+		tf->file = file;
+	}
+
+	//is newfd already existed, have to remove it first.
+
 	list_insert_ordered(&t->open_file, &tf->elem, thread_fd_less, NULL);
 	return newfd;
 }

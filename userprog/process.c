@@ -149,7 +149,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. if fail to insert page, do error handling. */
-		printf("pml4_set_page fail\n");
+		printf("pml4_set_page fail:%s\n,", thread_current()->name);
 		palloc_free_page (newpage);
 		current->exitcode = -1;
 		return false;
