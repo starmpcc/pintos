@@ -33,6 +33,7 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *);
 static void __do_fork (void *);
 
+struct lock filesys_lock;
 /* General process initializer for initd and other process. */
 static void
 process_init (struct thread *parent) {
@@ -59,7 +60,6 @@ tid_t
 process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
-
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
@@ -242,7 +242,6 @@ process_exec (void *input) {
 
 	/* We first kill the current context */
 	process_cleanup ();
-
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
@@ -318,10 +317,12 @@ process_exit (void) {
 
 		if (cinfo != NULL && parent->tid == cinfo->parent_tid)
 		{
+			lock_acquire (&children_info_lock);
 			// Update exit status for this tid
 			cinfo->exitcode = curr->exitcode;
 			// sema up for unblock or enable wait syscall
 			sema_up (&cinfo->sema);
+			lock_release (&children_info_lock);
 		}
 	}
 

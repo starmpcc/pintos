@@ -35,7 +35,6 @@
 static void donate_priority_for(struct lock *);
 
 /* Auxiliary comparator for sorted insert to acquired_locks. */
-static bool lock_priority_more (const struct list_elem *, const struct list_elem *, void*);
 static bool thread_priority_less (const struct list_elem *, const struct list_elem *, void*);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
@@ -192,19 +191,20 @@ lock_init (struct lock *lock) {
 static void
 donate_priority_for(struct lock *lock) {
 	struct thread* donee = lock->holder;
-	int donee_priority = thread_get_priority_of (donee);
-	int doner_priority = thread_get_priority ();
+	if (donee == NULL)
+		return;
 
+	int doner_priority = thread_get_priority ();
 	if (doner_priority > lock->max_donated_priority)
 	{
+		int donee_priority = thread_get_priority_of (donee);
+
 		// High donated priority trigger priority bucket change of donee thread.
 		bool change_bucket = (doner_priority > donee_priority);
 		if (change_bucket)
 			bucket_remove(donee);
-		// Update lock's max_donated_priority and lock position in owning thread lock list.
+		// Update lock's max_donated_priority.
 		lock->max_donated_priority = doner_priority;
-		list_remove (&lock->elem);
-		list_insert_ordered (&donee->acquired_locks, &lock->elem, lock_priority_more, NULL);
 		if (change_bucket)
 			bucket_push(donee);
 	}
@@ -244,8 +244,7 @@ lock_acquire (struct lock *lock) {
 	sema_down (&lock->semaphore);
 	lock->holder = t;
 	t->blocking_lock = NULL;
-
-	ASSERT (lock->max_donated_priority == 0);
+	lock->max_donated_priority = 0;
 	list_push_back (&t->acquired_locks, &lock->elem);
 }
 
@@ -385,15 +384,6 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 	struct list_elem* p = list_front (&cond->semaphore.waiters);
 	while (list_next (p) != NULL)
 		cond_signal (cond, lock);
-}
-
-static bool
-lock_priority_more (const struct list_elem *a, const struct list_elem *b,
-		void* aux UNUSED) {
-	int a_pri = list_entry (a, struct lock, elem)->max_donated_priority;
-	int b_pri = list_entry (b, struct lock, elem)->max_donated_priority;
-	// Decreasing order of locks' max donated priority
-	return a_pri > b_pri;
 }
 
 static bool
