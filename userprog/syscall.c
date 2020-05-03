@@ -275,7 +275,9 @@ open_s (const char *file){
 	if (t->open_file_cnt >126) return -1;
 	t->open_file_cnt++;
 	int fd=++t->fd_max;
+	lock_acquire(&filesys_lock);
 	struct file* file_struct = filesys_open(file);
+	lock_release(&filesys_lock);
 	if (file_struct == NULL) return -1;
 	struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
 	tf->fd = fd;
