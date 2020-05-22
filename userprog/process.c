@@ -715,11 +715,32 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
+static struct load_info{
+	struct file *file;
+	uint8_t *upage;
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+	bool writable;
+};
+
 static bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	struct load_info* li = (struct load_info *) aux;
+	if (page == NULL) return false;
+
+	/* Load this page. */
+	if (li -> page_read_bytes){
+		if (file_read (li -> file, page -> va, li -> page_read_bytes) != (off_t) li -> page_read_bytes) {
+			vm_dealloc_page (page);
+			free (li);
+			return false;
+		}
+	}
+	memset (page -> va + li -> page_read_bytes, 0, li -> page_zero_bytes);
+	free (li);
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -743,6 +764,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
 
+	file_seek (file, ofs);
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -751,10 +773,18 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
+		struct load_info *aux = malloc (sizeof (struct load_info));
+		aux -> file = file;
+		aux -> upage = upage;
+		aux -> page_read_bytes = page_read_bytes;
+		aux -> page_zero_bytes = page_zero_bytes;
+		aux -> writable = writable;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+					writable, lazy_load_segment, (void*) aux)){
+			NOT_REACHED();
+			free (aux);
 			return false;
+		}
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
@@ -764,6 +794,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	return true;
 }
 
+#define WORD_ALIGN(addr) ((uint64_t)addr - ((uint64_t)addr/8)*8)
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
@@ -774,6 +805,35 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
+	success = vm_alloc_page (VM_ANON, stack_bottom ,true);
+	if (!vm_claim_page(stack_bottom)) return false;
+
+	char** argv = (char**) if_->R.rsi; //&argv
+	uint64_t argc = if_->R.rdi; //argc
+	uint64_t stack_pos = USER_STACK;
+	uint64_t args_pos[32];
+	for (int i=0;i<(int) argc;i++){
+		size_t tmplen = strlen(argv[i]);
+		stack_pos = stack_pos - tmplen -1;
+		strlcpy((char*) stack_pos, argv[i], 128); //128 is max length of argument
+		args_pos[i] = stack_pos;
+	}
+	stack_pos -= WORD_ALIGN(stack_pos);
+	// Can cause problem: skipped to insert padding
+	//stack_pos = (uint8_t[]) 0
+	for (int i = argc;i>=0;i--){
+		stack_pos-=8;
+		if (i == (int) argc) *(char*)(stack_pos) = 0;
+		else{
+			memcpy((void *) stack_pos, &(args_pos[i]),8);
+		}
+		
+	}
+	stack_pos-=8;
+	*((uint64_t*) stack_pos)= 0;
+	if_->rsp = stack_pos;
+	if_->R.rsi = stack_pos+8;
+	if_->R.rdi=argc;
 
 	return success;
 }

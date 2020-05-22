@@ -3,6 +3,10 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "lib/kernel/hash.h"
+#include "threads/vaddr.h"
+#include "threads/mmu.h"
+#include "intrinsic.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -37,10 +41,13 @@ static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
 
+static uint64_t page_hash (const struct hash_elem *p_, void *aux UNUSED);
+static bool page_less (const struct hash_elem *a_,
+           const struct hash_elem *b_, void *aux UNUSED);
+
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
- * `vm_alloc_page`.
- * DO NOT MODIFY THIS FUNCTION. */
+ * `vm_alloc_page`.*/
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
@@ -56,34 +63,48 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		 * TODO: should modify the field after calling the uninit_new. */
 
 		/* TODO: Insert the page into the spt. */
+		struct page* page = malloc (sizeof (struct page));
+		if (type == VM_ANON){
+			uninit_new (page, upage, init, type, aux, anon_initializer);
+		}
+		else if (type == VM_FILE){
+			uninit_new (page, upage, init, type, aux, file_map_initializer);
+		}
+
+		page -> writable = writable;
+		page -> on_memory = 0;
+		spt_insert_page (spt, page);
+		return true;
 	}
-err:
-	return false;
 }
 
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
+spt_find_page (struct supplemental_page_table *spt, void *va) {
+	struct page page;
 	/* TODO: Fill this function. */
-
-	return page;
+	page.va = pg_round_down (va);
+	struct hash_elem *e = hash_find (spt -> page_table, &page.hash_elem);
+	if (e == NULL) return NULL;
+	struct page* result = hash_entry (e, struct page, hash_elem);
+	ASSERT((va < result -> va + PGSIZE) && va >= result -> va);
+	return result;
 }
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
-	int succ = false;
+spt_insert_page (struct supplemental_page_table *spt,
+		struct page *page) {
 	/* TODO: Fill this function. */
-
-	return succ;
+	struct hash_elem *result= hash_insert (spt -> page_table, &page -> hash_elem);
+	return (result == NULL) ? true : false ;
 }
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
-	vm_dealloc_page (page);
-	return true;
+	struct hash_elem* e = hash_delete (spt -> page_table, &page ->hash_elem);
+	if (e != NULL) vm_dealloc_page (page);
+	return;
 }
 
 /* Get the struct frame, that will be evicted. */
@@ -111,11 +132,12 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
-
-	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
+	// TODO: Add swap case handling
+	struct frame * frame = malloc (sizeof (frame));
+	frame -> kva = palloc_get_page (PAL_USER);
+	frame -> page = NULL;
+	ASSERT (frame->kva != NULL);
 	return frame;
 }
 
@@ -133,11 +155,19 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
-	struct page *page = NULL;
+	struct supplemental_page_table *spt = &thread_current ()-> spt;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-
+	/*	Flag Info
+	bool not_present;  True: not-present page, false: writing r/o page.
+	bool write;        True: access was write, false: access was read.
+	bool user;        True: access by user, false: access by kernel.*/
+	uint64_t fault_addr = rcr2();
+	if (is_kernel_vaddr ( fault_addr) && user) return false;
+	struct page* page = spt_find_page (spt, (void *) fault_addr);
+	if (write && !not_present) return vm_handle_wp (page);
+	if (page == NULL) return false;
+//	if (not_present) do swap process
 	return vm_do_claim_page (page);
 }
 
@@ -151,10 +181,10 @@ vm_dealloc_page (struct page *page) {
 
 /* Claim the page that allocate on VA. */
 bool
-vm_claim_page (void *va UNUSED) {
-	struct page *page = NULL;
+vm_claim_page (void *va) {
 	/* TODO: Fill this function */
-
+	struct page *page = spt_find_page (&thread_current () ->spt, va);
+	if (page == NULL) return false;
 	return vm_do_claim_page (page);
 }
 
@@ -162,19 +192,39 @@ vm_claim_page (void *va UNUSED) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
-
 	/* Set links */
+	ASSERT (frame != NULL);
+	ASSERT (page != NULL);
 	frame->page = page;
 	page->frame = frame;
-
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-
+	if (!pml4_set_page (thread_current () -> pml4, page -> va, frame->kva, page -> writable))
+		return false;
 	return swap_in (page, frame->kva);
+}
+
+
+static uint64_t
+page_hash (const struct hash_elem *p_, void *aux UNUSED) {
+  const struct page *p = hash_entry (p_, struct page, hash_elem);
+  return hash_bytes (&p->va, sizeof p->va);
+}
+
+static bool
+page_less (const struct hash_elem *a_,
+           const struct hash_elem *b_, void *aux UNUSED) {
+  const struct page *a = hash_entry (a_, struct page, hash_elem);
+  const struct page *b = hash_entry (b_, struct page, hash_elem);
+
+  return a->va < b->va;
 }
 
 /* Initialize new supplemental page table */
 void
-supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_init (struct supplemental_page_table *spt) {
+	struct hash* page_table = malloc(sizeof (struct hash));
+	hash_init (page_table, page_hash, page_less, NULL);
+	spt -> page_table = page_table;
 }
 
 /* Copy supplemental page table from src to dst */
