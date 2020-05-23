@@ -76,6 +76,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		spt_insert_page (spt, page);
 		return true;
 	}
+	return false;
 }
 
 /* Find VA from spt and return page. On error, return NULL. */
@@ -149,6 +150,7 @@ vm_stack_growth (void *addr UNUSED) {
 /* Handle the fault on write_protected page */
 static bool
 vm_handle_wp (struct page *page UNUSED) {
+	return true;
 }
 
 /* Return true on success */
@@ -165,8 +167,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	uint64_t fault_addr = rcr2();
 	if (is_kernel_vaddr ( fault_addr) && user) return false;
 	struct page* page = spt_find_page (spt, (void *) fault_addr);
-	if (write && !not_present) return vm_handle_wp (page);
 	if (page == NULL) return false;
+	if (write && !not_present) return vm_handle_wp (page);
 //	if (not_present) do swap process
 	return vm_do_claim_page (page);
 }
@@ -231,6 +233,7 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
+	return false;
 }
 
 /* Free the resource hold by the supplemental page table */
