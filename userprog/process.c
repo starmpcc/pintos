@@ -525,6 +525,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
+	printf("in load after setup_stack near rbp register saving address #####: %p\n", if_->R.rbp);
 
 	success = true;
 

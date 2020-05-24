@@ -155,8 +155,8 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
+		bool user, bool write, bool not_present) {
 	struct supplemental_page_table *spt = &thread_current ()-> spt;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
@@ -164,9 +164,9 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	bool not_present;  True: not-present page, false: writing r/o page.
 	bool write;        True: access was write, false: access was read.
 	bool user;        True: access by user, false: access by kernel.*/
-	uint64_t fault_addr = rcr2();
-	if (is_kernel_vaddr ( fault_addr) && user) return false;
-	struct page* page = spt_find_page (spt, (void *) fault_addr);
+	printf("user: %d, write: %d, not_present: %d, is_kernel_vaddr: %d, addr: %p\n", user, write, not_present, is_kernel_vaddr (addr), addr);
+	if (is_kernel_vaddr (addr) && user) return false;
+	struct page* page = spt_find_page (spt, addr);
 	if (page == NULL) return false;
 	if (write && !not_present) return vm_handle_wp (page);
 //	if (not_present) do swap process

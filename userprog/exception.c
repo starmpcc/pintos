@@ -83,9 +83,9 @@ kill (struct intr_frame *f) {
 		case SEL_UCSEG:
 			/* User's code segment, so it's a user exception, as we
 			   expected.  Kill the user process.  */
-			/*printf ("%s: dying due to interrupt %#04llx (%s).\n",
+			printf ("%s: dying due to interrupt %#04llx (%s).\n",
 					thread_name (), f->vec_no, intr_name (f->vec_no));
-			intr_dump_frame (f);*/
+			intr_dump_frame (f);
 			thread_exit ();
 
 		case SEL_KCSEG:
@@ -140,28 +140,28 @@ page_fault (struct intr_frame *f) {
 	write = (f->error_code & PF_W) != 0;
 	user = (f->error_code & PF_U) != 0;
 
+#ifdef VM
+	/* For project 3 and later. */
+	if (vm_try_handle_fault (f, fault_addr, user, write, not_present))
+		return;
+#endif
+
 	if (user)
 	{
 		struct thread *curr = thread_current ();
 		curr->exitcode = -1;
 		f->cs = SEL_UCSEG;
 	}
-#ifdef VM
-	/* For project 3 and later. */
-	if (vm_try_handle_fault (f, fault_addr, user, write, not_present))
-		return;
-#endif
-	/* Count page faults. */
+
+	printf("is kernel_vaddr? %d, user? %d\n", is_kernel_vaddr(fault_addr), user);
 	page_fault_cnt++;
 
-	if (!user){
-		/* If the fault is true fault, show info and exit. */
-		printf ("Page fault at %p: %s error %s page in %s context.\n",
-				fault_addr,
-				not_present ? "not present" : "rights violation",
-				write ? "writing" : "reading",
-				user ? "user" : "kernel");
-	}
+	/* If the fault is true fault, show info and exit. */
+	printf ("Page fault at %p: %s error %s page in %s context.\n",
+			fault_addr,
+			not_present ? "not present" : "rights violation",
+			write ? "writing" : "reading",
+			user ? "user" : "kernel");
 	kill (f);
 }
 
