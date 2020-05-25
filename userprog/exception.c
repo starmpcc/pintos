@@ -153,7 +153,6 @@ page_fault (struct intr_frame *f) {
 		f->cs = SEL_UCSEG;
 	}
 
-	printf("is kernel_vaddr? %d, user? %d\n", is_kernel_vaddr(fault_addr), user);
 	page_fault_cnt++;
 
 	/* If the fault is true fault, show info and exit. */

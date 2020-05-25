@@ -164,7 +164,6 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
 	bool not_present;  True: not-present page, false: writing r/o page.
 	bool write;        True: access was write, false: access was read.
 	bool user;        True: access by user, false: access by kernel.*/
-	printf("user: %d, write: %d, not_present: %d, is_kernel_vaddr: %d, addr: %p\n", user, write, not_present, is_kernel_vaddr (addr), addr);
 	if (is_kernel_vaddr (addr) && user) return false;
 	struct page* page = spt_find_page (spt, addr);
 	if (page == NULL) return false;

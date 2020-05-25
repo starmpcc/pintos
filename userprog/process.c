@@ -525,7 +525,6 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
-	printf("in load after setup_stack near rbp register saving address #####: %p\n", if_->R.rbp);
 
 	success = true;
 
@@ -718,7 +717,8 @@ install_page (void *upage, void *kpage, bool writable) {
 
 static struct load_info{
 	struct file *file;
-	uint8_t *upage;
+	uint8_t *upage; // TODO: remove this unused
+	off_t ofs;
 	size_t page_read_bytes;
 	size_t page_zero_bytes;
 };
@@ -733,7 +733,8 @@ lazy_load_segment (struct page *page, void *aux) {
 	ASSERT(li ->page_read_bytes <=PGSIZE);
 	ASSERT(li -> page_zero_bytes <= PGSIZE);
 	/* Load this page. */
-	if (li -> page_read_bytes){
+	if (li -> page_read_bytes > 0) {
+		file_seek (li -> file, li -> ofs);
 		if (file_read (li -> file, page -> va, li -> page_read_bytes) != (off_t) li -> page_read_bytes) {
 			vm_dealloc_page (page);
 			free (li);
@@ -741,6 +742,7 @@ lazy_load_segment (struct page *page, void *aux) {
 		}
 	}
 	memset (page -> va + li -> page_read_bytes, 0, li -> page_zero_bytes);
+	file_close (li -> file);
 	free (li);
 	return true;
 }
@@ -767,6 +769,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT (ofs % PGSIZE == 0);
 
 	file_seek (file, ofs);
+	off_t read_ofs = 0;
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -776,8 +779,9 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		struct load_info *aux = malloc (sizeof (struct load_info));
-		aux -> file = file;
+		aux -> file = file_reopen(file);
 		aux -> upage = upage;
+		aux -> ofs = read_ofs;
 		aux -> page_read_bytes = page_read_bytes;
 		aux -> page_zero_bytes = page_zero_bytes;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
@@ -790,6 +794,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		read_ofs += PGSIZE;
 	}
 	return true;
 }
