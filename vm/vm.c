@@ -7,6 +7,7 @@
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
 #include "intrinsic.h"
+#include <string.h>
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -237,9 +238,13 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 	hash_first (&i, src -> page_table);
 	while (hash_next (&i)) {
 		struct page *page = hash_entry (hash_cur (&i), struct page, hash_elem);
-		if (!vm_alloc_page (page_get_type (page), page -> va, page -> writable)) return false;
-		if (!vm_do_claim_page (page)) return false;
-		hash_insert (dst -> page_table, &page -> hash_elem);
+		if (!vm_alloc_page (page -> operations -> type, page -> va, page -> writable)) return false;
+		if (page_get_type(page) != VM_UNINIT){
+			if (!vm_claim_page (page -> va))
+				return false;
+			struct page* new_page = spt_find_page (&thread_current () -> spt, page -> va);
+			memcpy (new_page -> frame -> kva, page -> frame -> kva, PGSIZE);
+		}
 	}
 	return true;
 }
