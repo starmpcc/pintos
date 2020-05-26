@@ -242,6 +242,7 @@ process_exec (void *input) {
 
 	/* We first kill the current context */
 	process_cleanup ();
+	supplemental_page_table_init (&thread_current () -> spt);
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
@@ -784,7 +785,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		aux -> ofs = read_ofs;
 		aux -> page_read_bytes = page_read_bytes;
 		aux -> page_zero_bytes = page_zero_bytes;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
+		if (!vm_alloc_page_with_initializer (VM_ANON || VM_STACK, upage,
 					writable, lazy_load_segment, (void*) aux)){
 			free (aux);
 			return false;
