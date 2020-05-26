@@ -8,6 +8,7 @@
 #include "threads/mmu.h"
 #include "intrinsic.h"
 #include <string.h>
+#include "threads/vaddr.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -53,9 +54,8 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
-
 	struct supplemental_page_table *spt = &thread_current ()->spt;
+	bool writable_aux = writable;
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
@@ -71,8 +71,17 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		else if (type == VM_FILE){
 			uninit_new (page, upage, init, type, aux, file_map_initializer);
 		}
+		else if (type == VM_UNINIT){
+			/*Get src page struct as aux, copy the data of it*/
+			struct page* src = (struct page*) aux;
+			init = src -> uninit.init;
+			writable_aux = src -> writable;
+			type = src -> uninit.type;
+			aux = src -> uninit.aux;
+			uninit_new (page, upage, init, type, aux, src -> uninit.page_initializer);
+		}
 
-		page -> writable = writable;
+		page -> writable = writable_aux;
 		page -> on_memory = 0;
 		spt_insert_page (spt, page);
 		return true;
@@ -233,16 +242,26 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
-	
+	/*Iterate Source spt hash table*/
 	struct hash_iterator i;
 	hash_first (&i, src -> page_table);
 	while (hash_next (&i)) {
 		struct page *page = hash_entry (hash_cur (&i), struct page, hash_elem);
-		if (!vm_alloc_page (page -> operations -> type, page -> va, page -> writable)) return false;
-		if (page_get_type(page) != VM_UNINIT){
+
+		/*Handle UNINIT page*/
+		if (page -> operations -> type == VM_UNINIT){
+			/*pass uninit page as aux, and handle arguments in vm_alloc_page_with_initializer*/
+			vm_alloc_page_with_initializer (VM_UNINIT, page -> va, NULL, NULL, (void *)page);
+		}
+		
+		/* Handle ANON/FILE page*/
+		else {
+			if (!vm_alloc_page (page -> operations -> type, page -> va, page -> writable))
+				return false;
 			if (!vm_claim_page (page -> va))
 				return false;
 			struct page* new_page = spt_find_page (&thread_current () -> spt, page -> va);
+			ASSERT(new_page != NULL);
 			memcpy (new_page -> frame -> kva, page -> frame -> kva, PGSIZE);
 		}
 	}
