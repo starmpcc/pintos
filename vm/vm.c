@@ -258,10 +258,9 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 		else {
 			if (!vm_alloc_page (page -> operations -> type, page -> va, page -> writable))
 				return false;
-			if (!vm_claim_page (page -> va))
-				return false;
 			struct page* new_page = spt_find_page (&thread_current () -> spt, page -> va);
-			ASSERT(new_page != NULL);
+			if (!vm_do_claim_page (new_page))
+				return false;
 			memcpy (new_page -> frame -> kva, page -> frame -> kva, PGSIZE);
 		}
 	}

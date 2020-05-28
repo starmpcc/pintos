@@ -718,7 +718,6 @@ install_page (void *upage, void *kpage, bool writable) {
 
 static struct load_info{
 	struct file *file;
-	uint8_t *upage; // TODO: remove this unused
 	off_t ofs;
 	size_t page_read_bytes;
 	size_t page_zero_bytes;
@@ -769,8 +768,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
 
-	file_seek (file, ofs);
-	off_t read_ofs = 0;
+	off_t read_ofs = ofs;
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -781,11 +779,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		struct load_info *aux = malloc (sizeof (struct load_info));
 		aux -> file = file_reopen(file);
-		aux -> upage = upage;
 		aux -> ofs = read_ofs;
 		aux -> page_read_bytes = page_read_bytes;
 		aux -> page_zero_bytes = page_zero_bytes;
-		if (!vm_alloc_page_with_initializer (VM_ANON || VM_STACK, upage,
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, (void*) aux)){
 			free (aux);
 			return false;
@@ -811,7 +808,7 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-	success = vm_alloc_page (VM_ANON, stack_bottom ,true);
+	success = vm_alloc_page (VM_ANON || VM_STACK, stack_bottom ,true);
 	if (!vm_claim_page(stack_bottom)) return false;
 
 	char** argv = (char**) if_->R.rsi; //&argv
@@ -825,7 +822,6 @@ setup_stack (struct intr_frame *if_) {
 		args_pos[i] = stack_pos;
 	}
 	stack_pos -= WORD_ALIGN(stack_pos);
-	// Can cause problem: skipped to insert padding
 	//stack_pos = (uint8_t[]) 0
 	for (int i = argc;i>=0;i--){
 		stack_pos-=8;
