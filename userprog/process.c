@@ -795,16 +795,15 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
-	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
 	/* TODO: Map the stack on stack_bottom and claim the page immediately.
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-	success = vm_alloc_page (VM_ANON || VM_STACK, stack_bottom ,true);
+	if (!vm_alloc_page (VM_ANON | VM_STACK, stack_bottom ,true)) return false;;
 	if (!vm_claim_page(stack_bottom)) return false;
-
+	memset(stack_bottom, 0, PGSIZE);
 	char** argv = (char**) if_->R.rsi; //&argv
 	uint64_t argc = if_->R.rdi; //argc
 	uint64_t stack_pos = USER_STACK;
@@ -831,6 +830,6 @@ setup_stack (struct intr_frame *if_) {
 	if_->R.rsi = stack_pos+8;
 	if_->R.rdi=argc;
 
-	return success;
+	return true;
 }
 #endif /* VM */

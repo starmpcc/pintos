@@ -66,10 +66,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		ASSERT(type != VM_UNINIT);
 		/* TODO: Insert the page into the spt. */
 		struct page* page = malloc (sizeof (struct page));
-		if (type == VM_ANON){
+		if (VM_TYPE(type) == VM_ANON){
 			uninit_new (page, upage, init, type, aux, anon_initializer);
 		}
-		else if (type == VM_FILE){
+		else if (VM_TYPE(type) == VM_FILE){
 			uninit_new (page, upage, init, type, aux, file_map_initializer);
 		}
 
@@ -271,7 +271,6 @@ static void
 spt_destroy (struct hash_elem *e, void *aux UNUSED){
 	struct page *page = hash_entry (e, struct page, hash_elem);
 	ASSERT (page != NULL);
-	if (page -> operations -> type & VM_STACK) return;
 	destroy (page);
 	free (page);
 }
