@@ -63,6 +63,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
 
+		ASSERT(type != VM_UNINIT);
 		/* TODO: Insert the page into the spt. */
 		struct page* page = malloc (sizeof (struct page));
 		if (type == VM_ANON){
@@ -70,15 +71,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		}
 		else if (type == VM_FILE){
 			uninit_new (page, upage, init, type, aux, file_map_initializer);
-		}
-		else if (type == VM_UNINIT){
-			/*Get src page struct as aux, copy the data of it*/
-			struct page* src = (struct page*) aux;
-			init = src -> uninit.init;
-			writable_aux = src -> writable;
-			type = src -> uninit.type;
-			aux = src -> uninit.aux;
-			uninit_new (page, upage, init, type, aux, src -> uninit.page_initializer);
 		}
 
 		page -> writable = writable_aux;
@@ -251,7 +243,15 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 		/*Handle UNINIT page*/
 		if (page -> operations -> type == VM_UNINIT){
 			/*pass uninit page as aux, and handle arguments in vm_alloc_page_with_initializer*/
-			vm_alloc_page_with_initializer (VM_UNINIT, page -> va, NULL, NULL, (void *)page);
+			vm_initializer* init = page ->uninit.init;
+			bool writable = page -> writable;
+			struct load_info* li = malloc (sizeof (struct load_info));
+			li -> file = file_duplicate (((struct load_info *) page -> uninit .aux)->file);
+			li -> page_read_bytes = ((struct load_info *) page -> uninit .aux)->page_read_bytes;
+			li -> page_zero_bytes = ((struct load_info *) page -> uninit .aux)->page_zero_bytes;
+			li -> ofs = ((struct load_info *) page -> uninit .aux)->ofs;
+			int type = page -> uninit.type;
+			vm_alloc_page_with_initializer (type, page -> va, writable, init, (void*) li);
 		}
 		
 		/* Handle ANON/FILE page*/
@@ -268,11 +268,12 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 }
 
 static void
-page_table_destroy (struct hash_elem *e, void *aux UNUSED){
+spt_destroy (struct hash_elem *e, void *aux UNUSED){
 	struct page *page = hash_entry (e, struct page, hash_elem);
 	ASSERT (page != NULL);
-	if (page_get_type (page) && VM_STACK) return;
+	if (page -> operations -> type & VM_STACK) return;
 	destroy (page);
+	free (page);
 }
 
 /* Free the resource hold by the supplemental page table */
@@ -281,6 +282,6 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
 	if (spt -> page_table == NULL) return;
-	hash_destroy (spt -> page_table, page_table_destroy);
+	hash_destroy (spt -> page_table, spt_destroy);
 	free (spt -> page_table);
 }
