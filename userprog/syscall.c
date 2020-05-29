@@ -39,6 +39,7 @@ static unsigned tell_s (int fd);
 static void close_s (int fd);
 static int dup2_s(int oldfd, int newfd);
 static void* mmap_s (void *addr, size_t length, int writable, int fd, off_t offset);
+static void munmap_s (void* addr);
 
 static void is_correct_addr(void* ptr);
 struct thread_file* get_tf(int fd);
@@ -120,6 +121,7 @@ syscall_handler (struct intr_frame *f) {
 			f->R.rax = (uint64_t) mmap_s ((void*) f->R.rdi, (size_t) f->R.rsi, (int) f->R.rdx, (int) f->R.r10, (off_t) f->R.r8);
 			break;
 		case SYS_MUNMAP:
+			munmap_s ((void*) f->R.rdi);
 			break;
 
 	 /* Project 4 only. */
@@ -492,4 +494,9 @@ mmap_s (void *addr, size_t length, int writable, int fd, off_t offset){
 	if (length == 0) return NULL;
 	struct file* file = tf->file;
 	return do_mmap(addr, length, writable, file, offset);
+}
+
+static void
+munmap_s (void* addr){
+	do_munmap(addr);
 }

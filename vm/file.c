@@ -100,6 +100,10 @@ do_mmap (void *addr, size_t length, int writable,
 		mi->read_bytes = read_bytes;
 		vm_alloc_page_with_initializer (VM_FILE, (void*) ((uint64_t) addr + i), writable, lazy_load_file, (void*) mi);
 	}
+	struct mmap_file_info* mfi = malloc (sizeof (struct mmap_file_info));
+	mfi->start = (uint64_t) addr;
+	mfi->end = (uint64_t) pg_round_down((uint64_t) addr + length -1);
+	list_push_back(&mmap_file_list, &mfi->elem);
 	return addr;
 }
 
@@ -111,11 +115,14 @@ do_munmap (void *addr) {
 	for (struct list_elem* i = list_front (&mmap_file_list); i != list_end (&mmap_file_list); i = list_next (i))
 	{
 		struct mmap_file_info* mfi = list_entry (i, struct mmap_file_info, elem);
-		if (mfi -> start == addr){
-			for (uint64_t j = addr; j<= mfi -> end; j += PGSIZE){
+		if (mfi -> start == (uint64_t) addr){
+			for (uint64_t j = (uint64_t)addr; j<= mfi -> end; j += PGSIZE){
 				struct page* page = spt_find_page(&thread_current() -> spt, (void*) j);
-				destroy(page);
+				pml4_clear_page(thread_current() -> pml4, page ->va);
+				spt_remove_page(&thread_current()->spt, page);
 			}
+			list_remove(&mfi->elem);
+			free(mfi);
 			return;
 		}
 	}
