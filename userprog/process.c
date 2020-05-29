@@ -240,6 +240,16 @@ process_exec (void *input) {
 	_if.R.rsi =(uint64_t) &argv[0];
 	_if.R.rdi = argc;
 
+	lock_acquire(&filesys_lock);
+	struct file* file = filesys_open ((const char*) file_name);
+	lock_release(&filesys_lock);
+	if (file == NULL){
+		printf ("load: %s: open failed\n", file_name);
+		thread_current() ->exitcode = -1;
+		thread_exit();
+		return -1;
+	}
+
 	/* We first kill the current context */
 	process_cleanup ();
 	supplemental_page_table_init (&thread_current () -> spt);
