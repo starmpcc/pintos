@@ -64,6 +64,7 @@ file_map_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 	//if dirty, write back to file
 	if (pml4_is_dirty (thread_current() -> pml4, page -> va)){
+		file_seek (page ->file.file, page->file.ofs);
 		file_write (page ->file.file, page->va ,page->file.size);
 	}
 	file_close (page->file.file);
@@ -75,11 +76,12 @@ static bool
 lazy_load_file (struct page* page, void* aux){
 	struct mmap_info* mi = (struct mmap_info*) aux;
 	file_seek (mi->file, mi->offset);
-	file_read (mi->file, page->va, mi->read_bytes);
-	page -> file.size = mi->read_bytes;
-	if (mi->read_bytes != PGSIZE){
-		memset (page->va + mi->read_bytes, 0, PGSIZE - mi->read_bytes);
+	page -> file.size = file_read (mi->file, page->va, mi->read_bytes);
+	page -> file.ofs = mi->offset;
+	if (page->file.size != PGSIZE){
+		memset (page->va + page->file.size, 0, PGSIZE - page->file.size);
 	}
+	pml4_set_dirty (thread_current()->pml4, page->va, false);
 	free(mi);
 	return true;
 }
@@ -118,7 +120,6 @@ do_munmap (void *addr) {
 		if (mfi -> start == (uint64_t) addr){
 			for (uint64_t j = (uint64_t)addr; j<= mfi -> end; j += PGSIZE){
 				struct page* page = spt_find_page(&thread_current() -> spt, (void*) j);
-				pml4_clear_page(thread_current() -> pml4, page ->va);
 				spt_remove_page(&thread_current()->spt, page);
 			}
 			list_remove(&mfi->elem);

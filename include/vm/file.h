@@ -10,6 +10,7 @@ struct file_page {
 	struct file* file;
 	// real written size except zero bytes
 	off_t size;
+	off_t ofs;
 };
 
 struct mmap_info{
