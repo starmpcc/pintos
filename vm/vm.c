@@ -255,23 +255,22 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 				vm_alloc_page_with_initializer (type, page -> va, writable, init, (void*) li);
 			}
 			else if (type & VM_FILE){
-				struct mmap_info* mi = malloc (sizeof (struct mmap_info));
-				mi -> file = file_duplicate (((struct mmap_info *) page -> uninit .aux)->file);
-				mi -> read_bytes = ((struct mmap_info *) page -> uninit .aux)->read_bytes;
-				mi -> offset = ((struct mmap_info *) page -> uninit .aux)->offset;
-				vm_alloc_page_with_initializer (type, page -> va, writable, init, (void*) mi);
+				//Do_nothing(it should not inherit mmap)
 			}
 
 		}
 		
 		/* Handle ANON/FILE page*/
-		else {
+		else if (page_get_type(page) == VM_ANON){
 			if (!vm_alloc_page (page -> operations -> type, page -> va, page -> writable))
 				return false;
 			struct page* new_page = spt_find_page (&thread_current () -> spt, page -> va);
 			if (!vm_do_claim_page (new_page))
 				return false;
 			memcpy (new_page -> frame -> kva, page -> frame -> kva, PGSIZE);
+		}
+		else if (page_get_type(page) == VM_FILE){
+			//Do nothing(it should not inherit mmap)
 		}
 	}
 	return true;
