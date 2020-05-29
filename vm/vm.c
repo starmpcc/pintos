@@ -242,16 +242,26 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 
 		/*Handle UNINIT page*/
 		if (page -> operations -> type == VM_UNINIT){
-			/*pass uninit page as aux, and handle arguments in vm_alloc_page_with_initializer*/
 			vm_initializer* init = page ->uninit.init;
 			bool writable = page -> writable;
-			struct load_info* li = malloc (sizeof (struct load_info));
-			li -> file = file_duplicate (((struct load_info *) page -> uninit .aux)->file);
-			li -> page_read_bytes = ((struct load_info *) page -> uninit .aux)->page_read_bytes;
-			li -> page_zero_bytes = ((struct load_info *) page -> uninit .aux)->page_zero_bytes;
-			li -> ofs = ((struct load_info *) page -> uninit .aux)->ofs;
-			int type = page -> uninit.type;
-			vm_alloc_page_with_initializer (type, page -> va, writable, init, (void*) li);
+			//TODO: handle file page
+			int type = page ->uninit.type;
+			if (type & VM_ANON){
+				struct load_info* li = malloc (sizeof (struct load_info));
+				li -> file = file_duplicate (((struct load_info *) page -> uninit .aux)->file);
+				li -> page_read_bytes = ((struct load_info *) page -> uninit .aux)->page_read_bytes;
+				li -> page_zero_bytes = ((struct load_info *) page -> uninit .aux)->page_zero_bytes;
+				li -> ofs = ((struct load_info *) page -> uninit .aux)->ofs;
+				vm_alloc_page_with_initializer (type, page -> va, writable, init, (void*) li);
+			}
+			else if (type & VM_FILE){
+				struct mmap_info* mi = malloc (sizeof (struct mmap_info));
+				mi -> file = file_duplicate (((struct mmap_info *) page -> uninit .aux)->file);
+				mi -> read_bytes = ((struct mmap_info *) page -> uninit .aux)->read_bytes;
+				mi -> offset = ((struct mmap_info *) page -> uninit .aux)->offset;
+				vm_alloc_page_with_initializer (type, page -> va, writable, init, (void*) mi);
+			}
+
 		}
 		
 		/* Handle ANON/FILE page*/
