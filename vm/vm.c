@@ -146,7 +146,13 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {
+vm_stack_growth (void *addr) {
+  void *stack_bottom = pg_round_down (addr);
+  size_t req_stack_size = USER_STACK - (uintptr_t)stack_bottom;
+  if (req_stack_size > (1 << 20)) PANIC("Stack limit exceeded!\n"); // 1MB
+
+  vm_alloc_page (VM_ANON | VM_STACK, stack_bottom, true);
+  vm_claim_page (stack_bottom);
 }
 
 /* Handle the fault on write_protected page */
@@ -159,14 +165,19 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
 		bool user, bool write, bool not_present) {
-	struct supplemental_page_table *spt = &thread_current ()-> spt;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
-	/*	Flag Info
-	bool not_present;  True: not-present page, false: writing r/o page.
-	bool write;        True: access was write, false: access was read.
-	bool user;        True: access by user, false: access by kernel.*/
+	struct thread *curr = thread_current ();
+	struct supplemental_page_table *spt = &curr->spt;
+	/* Validate the fault */
 	if (is_kernel_vaddr (addr) && user) return false;
+	if ((write && (addr == curr->saved_sp - 8)) ||
+	    (curr->saved_sp <= addr && addr < USER_STACK)) {
+	  /* The x86-64 PUSH instruction checks access permissions
+	   * before it adjusts the stack pointer, so it may cause
+	   * a page fault 8 bytes below the stack pointer. */
+	  /* Or not allocated stack region access. */
+	  vm_stack_growth (addr);
+	  return true;
+	}
 	struct page* page = spt_find_page (spt, addr);
 	if (page == NULL) return false;
 	if (write && !not_present) return vm_handle_wp (page);
