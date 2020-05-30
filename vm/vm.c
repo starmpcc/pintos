@@ -158,7 +158,7 @@ vm_stack_growth (void *addr) {
 /* Handle the fault on write_protected page */
 static bool
 vm_handle_wp (struct page *page UNUSED) {
-	return true;
+	return false;
 }
 
 /* Return true on success */
@@ -253,26 +253,35 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 
 		/*Handle UNINIT page*/
 		if (page -> operations -> type == VM_UNINIT){
-			/*pass uninit page as aux, and handle arguments in vm_alloc_page_with_initializer*/
 			vm_initializer* init = page ->uninit.init;
 			bool writable = page -> writable;
-			struct load_info* li = malloc (sizeof (struct load_info));
-			li -> file = file_duplicate (((struct load_info *) page -> uninit .aux)->file);
-			li -> page_read_bytes = ((struct load_info *) page -> uninit .aux)->page_read_bytes;
-			li -> page_zero_bytes = ((struct load_info *) page -> uninit .aux)->page_zero_bytes;
-			li -> ofs = ((struct load_info *) page -> uninit .aux)->ofs;
-			int type = page -> uninit.type;
-			vm_alloc_page_with_initializer (type, page -> va, writable, init, (void*) li);
+			//TODO: handle file page
+			int type = page ->uninit.type;
+			if (type & VM_ANON){
+				struct load_info* li = malloc (sizeof (struct load_info));
+				li -> file = file_duplicate (((struct load_info *) page -> uninit .aux)->file);
+				li -> page_read_bytes = ((struct load_info *) page -> uninit .aux)->page_read_bytes;
+				li -> page_zero_bytes = ((struct load_info *) page -> uninit .aux)->page_zero_bytes;
+				li -> ofs = ((struct load_info *) page -> uninit .aux)->ofs;
+				vm_alloc_page_with_initializer (type, page -> va, writable, init, (void*) li);
+			}
+			else if (type & VM_FILE){
+				//Do_nothing(it should not inherit mmap)
+			}
+
 		}
 		
 		/* Handle ANON/FILE page*/
-		else {
+		else if (page_get_type(page) == VM_ANON){
 			if (!vm_alloc_page (page -> operations -> type, page -> va, page -> writable))
 				return false;
 			struct page* new_page = spt_find_page (&thread_current () -> spt, page -> va);
 			if (!vm_do_claim_page (new_page))
 				return false;
 			memcpy (new_page -> frame -> kva, page -> frame -> kva, PGSIZE);
+		}
+		else if (page_get_type(page) == VM_FILE){
+			//Do nothing(it should not inherit mmap)
 		}
 	}
 	return true;
