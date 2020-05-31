@@ -42,6 +42,7 @@ static void* mmap_s (void *addr, size_t length, int writable, int fd, off_t offs
 static void munmap_s (void* addr);
 
 static void is_correct_addr(void* ptr);
+static void check_writable_addr(void* ptr);
 struct thread_file* get_tf(int fd);
 /* System call.
  *
@@ -294,6 +295,13 @@ is_correct_addr(void* ptr){
 	if (page == NULL) exit_s(-1);
 }
 
+static void
+check_writable_addr(void* ptr){
+	struct page *page = spt_find_page (&thread_current() -> spt, ptr);
+	if (page == NULL || !page->writable) exit_s(-1);
+}
+
+
 static int
 get_fd(int fd){
 	struct thread* t = thread_current ();
@@ -400,6 +408,7 @@ read_s (int fd, void *buffer, unsigned size){
 	else if (tf ->std == 1) return -1;
 	else {
 		is_correct_addr(buffer);
+		check_writable_addr(buffer);
 		struct file* file = get_file (fd);
 		if (file == NULL) return -1;
 		return file_read(file, buffer, size);
