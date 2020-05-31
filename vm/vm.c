@@ -151,8 +151,13 @@ vm_stack_growth (void *addr) {
   size_t req_stack_size = USER_STACK - (uintptr_t)stack_bottom;
   if (req_stack_size > (1 << 20)) PANIC("Stack limit exceeded!\n"); // 1MB
 
-  vm_alloc_page (VM_ANON | VM_STACK, stack_bottom, true);
-  vm_claim_page (stack_bottom);
+  // Alloc page from tested region to previous claimed stack page.
+  void *growing_stack_bottom = stack_bottom;
+  while (growing_stack_bottom < USER_STACK &&
+      vm_alloc_page (VM_ANON | VM_STACK, growing_stack_bottom, true)) {
+    growing_stack_bottom += PGSIZE;
+  };
+  vm_claim_page (stack_bottom); // Lazy load requested stack page only
 }
 
 /* Handle the fault on write_protected page */
@@ -169,8 +174,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
 	struct supplemental_page_table *spt = &curr->spt;
 	/* Validate the fault */
 	if (is_kernel_vaddr (addr) && user) return false;
-	if ((write && (addr == curr->saved_sp - 8)) ||
-	    (curr->saved_sp <= addr && addr < USER_STACK)) {
+	if (write && (addr == curr->saved_sp - 8)) {
 	  /* The x86-64 PUSH instruction checks access permissions
 	   * before it adjusts the stack pointer, so it may cause
 	   * a page fault 8 bytes below the stack pointer. */

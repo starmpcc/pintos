@@ -288,7 +288,10 @@ static void
 is_correct_addr(void* ptr){
 	if (ptr == NULL) exit_s(-1);
 	if (!is_user_vaddr(ptr)) exit_s(-1);
-	if (pml4e_walk(thread_current()->pml4, (const uint64_t) ptr, 0)==NULL) exit_s(-1);
+	uint64_t *pte = pml4e_walk(thread_current()->pml4, (const uint64_t) ptr, 0);
+	if (pte == NULL) exit_s(-1);
+	struct page *page = spt_find_page (&thread_current() -> spt, ptr);
+	if (page == NULL) exit_s(-1);
 }
 
 static int
@@ -396,7 +399,7 @@ read_s (int fd, void *buffer, unsigned size){
 	}
 	else if (tf ->std == 1) return -1;
 	else {
-		is_correct_addr((void*) buffer);
+		is_correct_addr(buffer);
 		struct file* file = get_file (fd);
 		if (file == NULL) return -1;
 		return file_read(file, buffer, size);
