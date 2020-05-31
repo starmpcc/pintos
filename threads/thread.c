@@ -425,7 +425,9 @@ thread_tid (void) {
 void
 thread_exit (void) {
 	ASSERT (!intr_context ());
-
+#ifdef USERPROG
+	process_exit ();
+#endif
 	struct thread *curr = thread_current ();
 	// Cleanup lock related
 	struct lock *acquired_lock;
@@ -443,9 +445,6 @@ thread_exit (void) {
 		list_remove (&curr->elem);
 	}
 
-#ifdef USERPROG
-	process_exit ();
-#endif
 
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
