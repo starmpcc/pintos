@@ -10,6 +10,7 @@
 #include <string.h>
 #include "threads/vaddr.h"
 
+static struct lock spt_kill_lock;
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -22,6 +23,7 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	lock_init(&spt_kill_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -59,12 +61,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
-
 		ASSERT(type != VM_UNINIT);
-		/* TODO: Insert the page into the spt. */
 		struct page* page = malloc (sizeof (struct page));
 		if (VM_TYPE(type) == VM_ANON){
 			uninit_new (page, upage, init, type, aux, anon_initializer);
@@ -85,7 +82,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 struct page *
 spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct page page;
-	/* TODO: Fill this function. */
 	page.va = pg_round_down (va);
 	struct hash_elem *e = hash_find (spt -> page_table, &page.hash_elem);
 	if (e == NULL) return NULL;
@@ -98,7 +94,6 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
 bool
 spt_insert_page (struct supplemental_page_table *spt,
 		struct page *page) {
-	/* TODO: Fill this function. */
 	struct hash_elem *result= hash_insert (spt -> page_table, &page -> hash_elem);
 	return (result == NULL) ? true : false ;
 }
@@ -135,7 +130,6 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	/* TODO: Fill this function. */
 	// TODO: Add swap case handling
 	struct frame * frame = malloc (sizeof (frame));
 	frame -> kva = palloc_get_page (PAL_USER);
@@ -147,17 +141,17 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr) {
-  void *stack_bottom = pg_round_down (addr);
-  size_t req_stack_size = USER_STACK - (uintptr_t)stack_bottom;
-  if (req_stack_size > (1 << 20)) PANIC("Stack limit exceeded!\n"); // 1MB
+	void *stack_bottom = pg_round_down (addr);
+	size_t req_stack_size = USER_STACK - (uintptr_t)stack_bottom;
+	if (req_stack_size > (1 << 20)) PANIC("Stack limit exceeded!\n"); // 1MB
 
-  // Alloc page from tested region to previous claimed stack page.
-  void *growing_stack_bottom = stack_bottom;
-  while (growing_stack_bottom < USER_STACK &&
-      vm_alloc_page (VM_ANON | VM_STACK, growing_stack_bottom, true)) {
-    growing_stack_bottom += PGSIZE;
-  };
-  vm_claim_page (stack_bottom); // Lazy load requested stack page only
+	// Alloc page from tested region to previous claimed stack page.
+	void *growing_stack_bottom = stack_bottom;
+	while (growing_stack_bottom < USER_STACK &&
+		vm_alloc_page (VM_ANON | VM_STACK, growing_stack_bottom, true)) {
+	growing_stack_bottom += PGSIZE;
+	};
+	vm_claim_page (stack_bottom); // Lazy load requested stack page only
 }
 
 /* Handle the fault on write_protected page */
@@ -200,7 +194,6 @@ vm_dealloc_page (struct page *page) {
 /* Claim the page that allocate on VA. */
 bool
 vm_claim_page (void *va) {
-	/* TODO: Fill this function */
 	struct page *page = spt_find_page (&thread_current () ->spt, va);
 	if (page == NULL) return false;
 	return vm_do_claim_page (page);
@@ -215,7 +208,6 @@ vm_do_claim_page (struct page *page) {
 	ASSERT (page != NULL);
 	frame->page = page;
 	page->frame = frame;
-	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if (!pml4_set_page (thread_current () -> pml4, page -> va, frame->kva, page -> writable))
 		return false;
 	return swap_in (page, frame->kva);
@@ -259,7 +251,6 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 		if (page -> operations -> type == VM_UNINIT){
 			vm_initializer* init = page ->uninit.init;
 			bool writable = page -> writable;
-			//TODO: handle file page
 			int type = page ->uninit.type;
 			if (type & VM_ANON){
 				struct load_info* li = malloc (sizeof (struct load_info));
@@ -302,9 +293,9 @@ spt_destroy (struct hash_elem *e, void *aux UNUSED){
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
-	/* TODO: Destroy all the supplemental_page_table hold by thread and
-	 * TODO: writeback all the modified contents to the storage. */
 	if (spt -> page_table == NULL) return;
+	lock_acquire(&spt_kill_lock);
 	hash_destroy (spt -> page_table, spt_destroy);
 	free (spt -> page_table);
+	lock_release(&spt_kill_lock);
 }
