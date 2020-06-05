@@ -61,7 +61,12 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
+		/* Create the page, fetch the initialier according to the VM type,
+		 * and then create "uninit" page struct by calling uninit_new. You
+		 * should modify the field after calling the uninit_new. */
+
 		ASSERT(type != VM_UNINIT);
+		/* Insert the page into the spt. */
 		struct page* page = malloc (sizeof (struct page));
 		if (VM_TYPE(type) == VM_ANON){
 			uninit_new (page, upage, init, type, aux, anon_initializer);
@@ -208,6 +213,7 @@ vm_do_claim_page (struct page *page) {
 	ASSERT (page != NULL);
 	frame->page = page;
 	page->frame = frame;
+	/* Insert page table entry to map page's VA to frame's PA. */
 	if (!pml4_set_page (thread_current () -> pml4, page -> va, frame->kva, page -> writable))
 		return false;
 	return swap_in (page, frame->kva);
@@ -293,6 +299,8 @@ spt_destroy (struct hash_elem *e, void *aux UNUSED){
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
+	/* Destroy all the supplemental_page_table hold by thread and
+	 * writeback all the modified contents to the storage. */
 	if (spt -> page_table == NULL) return;
 	lock_acquire(&spt_kill_lock);
 	hash_destroy (spt -> page_table, spt_destroy);
