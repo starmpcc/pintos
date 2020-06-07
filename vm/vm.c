@@ -118,7 +118,7 @@ vm_get_victim (void) {
 	struct thread *curr = thread_current ();
 
 	struct list_elem *cand_elem = curr->clock_elem;
-	if (cand_elem == NULL)
+	if (cand_elem == NULL && !list_empty (&curr->frame_list))
 	      cand_elem = list_front (&curr->frame_list);
 
 	while (cand_elem != NULL) {
@@ -145,6 +145,7 @@ vm_get_victim (void) {
 static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim = vm_get_victim ();
+	if (victim == NULL) return NULL;
 
 	/* Swap out the victim and return the evicted frame. */
 	struct page *page = victim->page;
@@ -166,6 +167,8 @@ vm_evict_frame (void) {
 static struct frame *
 vm_get_frame (void) {
 	struct frame * frame = malloc (sizeof (frame));
+	// TODO(chanil): malloc returns same address which cause error
+	printf("vm_get_frame called, frame ptr: %p\n", (void *)frame);
 	frame -> kva = palloc_get_page (PAL_USER);
 	frame -> page = NULL;
 	// Add swap case handling
@@ -242,6 +245,7 @@ static bool
 vm_do_claim_page (struct page *page) {
 	struct thread *curr = thread_current ();
 	struct frame *frame = vm_get_frame ();
+	printf("frame pointer: %p %p\n", page, frame);
 	/* Set links */
 	ASSERT (frame != NULL);
 	ASSERT (page != NULL);
@@ -251,8 +255,9 @@ vm_do_claim_page (struct page *page) {
 	// Add to frame_list for eviction clock algorithm
 	if (curr->clock_elem != NULL)
 		// Just before current clock
-		list_insert (&curr->clock_elem, &frame->elem);
+		list_insert (curr->clock_elem, &frame->elem);
 	else
+		// TODO(chanil): comment list_push_back make error removed
 		list_push_back (&curr->frame_list, &frame->elem);
 
 	/* Insert page table entry to map page's VA to frame's PA. */
