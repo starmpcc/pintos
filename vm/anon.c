@@ -84,7 +84,6 @@ anon_swap_in (struct page *page, void *kva) {
 /* Swap out the page by writing contents to the swap disk. */
 static bool
 anon_swap_out (struct page *page) {
-	printf("SWAP_OUT!!!!!!!!!!!!!!!!!!!!!\n");
 	struct anon_page *anon_page = &page->anon;
 
 	// Get swap slot index from swap table
@@ -93,7 +92,7 @@ anon_swap_out (struct page *page) {
 		PANIC("There is no free swap slot!");
 
 	// Copy page frame content to swap_slot
-	if (page == NULL || page->frame == NULL || page->frame->kva)
+	if (page == NULL || page->frame == NULL || page->frame->kva == NULL)
 		return false;
 
 	disk_sector_t sec_no;
