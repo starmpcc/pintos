@@ -113,20 +113,50 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
-	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
+	/* Simple Clock Algorithm with Vairable Space? */
+	struct frame *candidate = NULL;
+	struct thread *curr = thread_current ();
 
-	return victim;
+	struct list_elem *cand_elem = curr->clock_elem;
+	if (cand_elem == NULL)
+	      cand_elem = list_front (&curr->frame_list);
+
+	while (cand_elem != NULL) {
+	      // Check frame accessed
+	      candidate = list_entry (cand_elem, struct frame, elem);
+	      if (!pml4_is_accessed (curr->pml4, candidate->page->va))
+		    break; // Found!
+	      pml4_set_accessed (curr->pml4, candidate->page->va, false);
+
+	      if (cand_elem == list_end (&curr->frame_list))
+		    // Repeat from the front
+		    cand_elem = list_front (&curr->frame_list);
+	      else
+		    cand_elem = list_next (cand_elem);
+	}
+
+	if (cand_elem != NULL)
+	      curr->clock_elem = list_next (cand_elem);
+	return candidate;
 }
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
-	/* TODO: swap out the victim and return the evicted frame. */
+	struct frame *victim = vm_get_victim ();
 
-	return NULL;
+	/* Swap out the victim and return the evicted frame. */
+	struct page *page = victim->page;
+	bool swap_done = swap_out (page);
+	if (!swap_done) PANIC("Swap is full!\n");
+
+	// Clear frame
+	victim->page = NULL;
+	memset (victim->kva, 0, PGSIZE);
+	list_remove (&victim->elem);
+
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -135,10 +165,14 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	// TODO: Add swap case handling
 	struct frame * frame = malloc (sizeof (frame));
 	frame -> kva = palloc_get_page (PAL_USER);
 	frame -> page = NULL;
+	// Add swap case handling
+	if (frame->kva == NULL) {
+	  free (frame);
+	  frame = vm_evict_frame ();
+	}
 	ASSERT (frame->kva != NULL);
 	return frame;
 }
@@ -154,7 +188,7 @@ vm_stack_growth (void *addr) {
 	void *growing_stack_bottom = stack_bottom;
 	while (growing_stack_bottom < USER_STACK &&
 		vm_alloc_page (VM_ANON | VM_STACK, growing_stack_bottom, true)) {
-	growing_stack_bottom += PGSIZE;
+	      growing_stack_bottom += PGSIZE;
 	};
 	vm_claim_page (stack_bottom); // Lazy load requested stack page only
 }
@@ -184,7 +218,6 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
 	struct page* page = spt_find_page (spt, addr);
 	if (page == NULL) return false;
 	if (write && !not_present) return vm_handle_wp (page);
-//	if (not_present) do swap process
 	return vm_do_claim_page (page);
 }
 
@@ -207,14 +240,23 @@ vm_claim_page (void *va) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+	struct thread *curr = thread_current ();
 	struct frame *frame = vm_get_frame ();
 	/* Set links */
 	ASSERT (frame != NULL);
 	ASSERT (page != NULL);
 	frame->page = page;
 	page->frame = frame;
+
+	// Add to frame_list for eviction clock algorithm
+	if (curr->clock_elem != NULL)
+		// Just before current clock
+		list_insert (&curr->clock_elem, &frame->elem);
+	else
+		list_push_back (&curr->frame_list, &frame->elem);
+
 	/* Insert page table entry to map page's VA to frame's PA. */
-	if (!pml4_set_page (thread_current () -> pml4, page -> va, frame->kva, page -> writable))
+	if (!pml4_set_page (curr -> pml4, page -> va, frame->kva, page -> writable))
 		return false;
 	return swap_in (page, frame->kva);
 }
