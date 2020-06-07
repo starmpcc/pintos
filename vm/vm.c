@@ -128,7 +128,7 @@ vm_get_victim (void) {
 		    break; // Found!
 	      pml4_set_accessed (curr->pml4, candidate->page->va, false);
 
-	      if (cand_elem == list_end (&curr->frame_list))
+	      if (cand_elem == list_back (&curr->frame_list))
 		    // Repeat from the front
 		    cand_elem = list_front (&curr->frame_list);
 	      else
@@ -166,9 +166,7 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	struct frame * frame = malloc (sizeof (frame));
-	// TODO(chanil): malloc returns same address which cause error
-	printf("vm_get_frame called, frame ptr: %p\n", (void *)frame);
+	struct frame * frame = malloc (sizeof (struct frame));
 	frame -> kva = palloc_get_page (PAL_USER);
 	frame -> page = NULL;
 	// Add swap case handling
@@ -245,7 +243,6 @@ static bool
 vm_do_claim_page (struct page *page) {
 	struct thread *curr = thread_current ();
 	struct frame *frame = vm_get_frame ();
-	printf("frame pointer: %p %p\n", page, frame);
 	/* Set links */
 	ASSERT (frame != NULL);
 	ASSERT (page != NULL);
@@ -257,7 +254,6 @@ vm_do_claim_page (struct page *page) {
 		// Just before current clock
 		list_insert (curr->clock_elem, &frame->elem);
 	else
-		// TODO(chanil): comment list_push_back make error removed
 		list_push_back (&curr->frame_list, &frame->elem);
 
 	/* Insert page table entry to map page's VA to frame's PA. */
