@@ -49,6 +49,9 @@ static uint64_t page_hash (const struct hash_elem *p_, void *aux UNUSED);
 static bool page_less (const struct hash_elem *a_,
            const struct hash_elem *b_, void *aux UNUSED);
 
+static struct list_elem *list_next_cycle (struct list *lst,
+    struct list_elem *elem);
+
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`.*/
@@ -110,6 +113,17 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	return;
 }
 
+static struct list_elem *
+list_next_cycle (struct list *lst, struct list_elem *elem) {
+      struct list_elem *cand_elem = elem;
+      if (cand_elem == list_back (lst))
+	    // Repeat from the front
+	    cand_elem = list_front (lst);
+      else
+	    cand_elem = list_next (cand_elem);
+      return cand_elem;
+}
+
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
@@ -128,15 +142,11 @@ vm_get_victim (void) {
 		    break; // Found!
 	      pml4_set_accessed (curr->pml4, candidate->page->va, false);
 
-	      if (cand_elem == list_back (&curr->frame_list))
-		    // Repeat from the front
-		    cand_elem = list_front (&curr->frame_list);
-	      else
-		    cand_elem = list_next (cand_elem);
+	      cand_elem = list_next_cycle (&curr->frame_list, cand_elem);
 	}
 
-	if (cand_elem != NULL)
-	      curr->clock_elem = list_next (cand_elem);
+	// Candidate at clock_elem will be evicted, tick clock.
+	curr->clock_elem = list_next_cycle (&curr->frame_list, cand_elem);
 	return candidate;
 }
 
