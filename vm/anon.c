@@ -53,7 +53,8 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	page->operations = &anon_ops;
 	if (type & VM_STACK) page->operations = &anon_stack_ops;
 	struct anon_page *anon_page = &page->anon;
-	page -> anon.owner = thread_current ();
+	anon_page->owner = thread_current ();
+	anon_page->swap_slot_idx = INVALID_SLOT_IDX;
 	return true;
 }
 
@@ -61,7 +62,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
-	if (anon_page->swap_slot_idx == NULL) return true;
+	if (anon_page->swap_slot_idx == INVALID_SLOT_IDX) return false;
 
 	disk_sector_t sec_no;
 	// Read page from disk with sector size chunk
@@ -74,7 +75,7 @@ anon_swap_in (struct page *page, void *kva) {
 	// Clear swap table
 	bitmap_set (swap_table, anon_page->swap_slot_idx, false);
 
-	anon_page->swap_slot_idx = NULL;
+	anon_page->swap_slot_idx = INVALID_SLOT_IDX;
 
 	return true;
 }
