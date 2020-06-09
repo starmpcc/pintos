@@ -39,9 +39,6 @@ vm_anon_init (void) {
 	swap_disk = disk_get(1, 1);
 
 	disk_sector_t num_sector = disk_size (swap_disk);
-	printf("num sector: %d %d\n", num_sector, SECTORS_PER_PAGE);
-	/*size_t disk_bytes = (size_t) num_sector * DISK_SECTOR_SIZE;*/
-	/*size_t max_slot = disk_bytes / PGSIZE;*/
 	size_t max_slot = num_sector / SECTORS_PER_PAGE;
 
 	// Set swap table based on the max_slot
