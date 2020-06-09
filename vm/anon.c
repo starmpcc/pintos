@@ -5,6 +5,7 @@
 #include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/vaddr.h"
+#include "threads/mmu.h"
 
 #define CEILING(x, y) (((x) + (y) - 1) / (y))
 #define SECTORS_PER_PAGE CEILING(PGSIZE, DISK_SECTOR_SIZE)
