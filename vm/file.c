@@ -83,14 +83,18 @@ file_map_swap_out (struct page *page) {
 /* Destory the file mapped page. PAGE will be freed by the caller. */
 static void
 file_map_destroy (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
 	//if dirty, write back to file
 	if (pml4_is_dirty (thread_current() -> pml4, page -> va)){
-		file_seek (page ->file.file, page->file.ofs);
-		file_write (page ->file.file, page->va ,page->file.size);
+		file_seek (file_page->file, file_page->ofs);
+		file_write (file_page->file, page->va, file_page->size);
 	}
-	file_close (page->file.file);
-	free (page -> frame);
+	file_close (file_page->file);
+
+	if (page->frame != NULL) {
+		list_remove (&page->frame->elem);
+		free (page->frame);
+	}
 }
 
 //Use to lazy load mmap

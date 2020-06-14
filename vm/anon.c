@@ -119,4 +119,12 @@ anon_destroy (struct page *page) {
 		list_remove (&page->frame->elem);
 		free(page->frame);
 	}
+	else {
+		// Swapped anon page case
+		struct anon_page *anon_page = &page->anon;
+		ASSERT (anon_page->swap_slot_idx != INVALID_SLOT_IDX);
+
+		// Clear swap table
+		bitmap_set (swap_table, anon_page->swap_slot_idx, false);
+	}
 }
