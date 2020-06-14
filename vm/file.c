@@ -83,6 +83,7 @@ file_map_swap_out (struct page *page) {
 /* Destory the file mapped page. PAGE will be freed by the caller. */
 static void
 file_map_destroy (struct page *page) {
+	// TODO: On mmap_exit sometimes empty file content
 	struct file_page *file_page = &page->file;
 	//if dirty, write back to file
 	if (pml4_is_dirty (thread_current() -> pml4, page -> va)){
