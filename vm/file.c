@@ -75,9 +75,7 @@ file_map_swap_out (struct page *page) {
 
 	// Set "not present" to page, and clear.
 	pml4_clear_page (curr->pml4, page->va);
-	pml4_set_accessed (curr->pml4, page->va, false);
 	page->frame = NULL;
-	page->on_memory = 0;
 
 	return true;
 }

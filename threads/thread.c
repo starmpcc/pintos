@@ -668,9 +668,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 	list_init (&t->open_file);
 	t->open_file_cnt = 0;
 
-	list_init (&t->frame_list);
-	t->clock_elem = NULL;
-
 	//for advanced scheduler
 	if (thread_mlfqs){
 		t->nice=0;

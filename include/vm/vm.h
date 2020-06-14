@@ -45,7 +45,6 @@ struct page {
 	/* Your implementation */
 	struct hash_elem hash_elem;
 	bool writable;
-	bool on_memory;
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
 	union {

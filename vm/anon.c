@@ -106,11 +106,8 @@ anon_swap_out (struct page *page) {
 
 	// Set "not present" to page, and clear.
 	pml4_clear_page (anon_page->owner->pml4, page->va);
-	pml4_set_accessed (anon_page->owner->pml4, page->va, false);
 	pml4_set_dirty (anon_page->owner->pml4, page->va, false);
-	page->frame->page = NULL;
 	page->frame = NULL;
-	page->on_memory = 0;
 
 	return true;
 }

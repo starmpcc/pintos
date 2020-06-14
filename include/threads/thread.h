@@ -118,9 +118,6 @@ struct thread {
 	/* Saving rsp into struct thread on the initial transition
 	 * from user to kernel mode. */
 	void* saved_sp;
-
-	struct list frame_list;
-	struct list_elem *clock_elem;
 #endif
 
 //for 2 userprog

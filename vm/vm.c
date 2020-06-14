@@ -10,6 +10,10 @@
 #include <string.h>
 #include "threads/vaddr.h"
 
+static struct list frame_list;
+static struct list_elem *clock_elem;
+static struct lock clock_lock;
+
 static struct lock spt_kill_lock;
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -24,6 +28,9 @@ vm_init (void) {
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
 	lock_init(&spt_kill_lock);
+	list_init (&frame_list);
+	clock_elem = NULL;
+	lock_init (&clock_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -79,7 +86,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		}
 
 		page -> writable = writable_aux;
-		page -> on_memory = 0;
 		spt_insert_page (spt, page);
 		return true;
 	}
@@ -131,10 +137,11 @@ vm_get_victim (void) {
 	struct frame *candidate = NULL;
 	struct thread *curr = thread_current ();
 
-	struct list_elem *cand_elem = curr->clock_elem;
-	if (cand_elem == NULL && !list_empty (&curr->frame_list))
-	      cand_elem = list_front (&curr->frame_list);
-
+	// This need careful synchronization, race between threads.
+	lock_acquire (&clock_lock);
+	struct list_elem *cand_elem = clock_elem;
+	if (cand_elem == NULL && !list_empty (&frame_list))
+	      cand_elem = list_front (&frame_list);
 	while (cand_elem != NULL) {
 	      // Check frame accessed
 	      candidate = list_entry (cand_elem, struct frame, elem);
@@ -142,11 +149,13 @@ vm_get_victim (void) {
 		    break; // Found!
 	      pml4_set_accessed (curr->pml4, candidate->page->va, false);
 
-	      cand_elem = list_next_cycle (&curr->frame_list, cand_elem);
-	}
+	      cand_elem = list_next_cycle (&frame_list, cand_elem);	}
+	// Candidate in frame_list at clock_elem will be evicted.
+	// Tick clock.
+	clock_elem = list_next_cycle (&frame_list, cand_elem);
+	list_remove (cand_elem);
+	lock_release (&clock_lock);
 
-	// Candidate at clock_elem will be evicted, tick clock.
-	curr->clock_elem = list_next_cycle (&curr->frame_list, cand_elem);
 	return candidate;
 }
 
@@ -165,7 +174,6 @@ vm_evict_frame (void) {
 	// Clear frame
 	victim->page = NULL;
 	memset (victim->kva, 0, PGSIZE);
-	list_remove (&victim->elem);
 
 	return victim;
 }
@@ -260,11 +268,11 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	// Add to frame_list for eviction clock algorithm
-	if (curr->clock_elem != NULL)
+	if (clock_elem != NULL)
 		// Just before current clock
-		list_insert (curr->clock_elem, &frame->elem);
+		list_insert (clock_elem, &frame->elem);
 	else
-		list_push_back (&curr->frame_list, &frame->elem);
+		list_push_back (&frame_list, &frame->elem);
 
 	/* Insert page table entry to map page's VA to frame's PA. */
 	if (!pml4_set_page (curr -> pml4, page -> va, frame->kva, page -> writable))
