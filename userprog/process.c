@@ -315,10 +315,11 @@ process_exit (void) {
 		file_close(curr->file_itself);
 	}
 	close_all(&curr->open_file);
-	if (curr->pml4 != NULL)
+	if (curr->pml4 != NULL){
 		// Print termination message when user process terminates
+		process_cleanup ();
 		printf ("%s: exit(%d)\n", curr->name, curr->exitcode);
-
+	}
 	// Check waiting process
 	if (parent != NULL)
 	{
@@ -337,7 +338,6 @@ process_exit (void) {
 		}
 	}
 
-	process_cleanup ();
 }
 
 /* Free the current process's resources. */
