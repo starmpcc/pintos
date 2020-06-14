@@ -205,7 +205,7 @@ vm_stack_growth (void *addr) {
 
 	// Alloc page from tested region to previous claimed stack page.
 	void *growing_stack_bottom = stack_bottom;
-	while (growing_stack_bottom < USER_STACK &&
+	while ((uintptr_t) growing_stack_bottom < USER_STACK &&
 		vm_alloc_page (VM_ANON | VM_STACK, growing_stack_bottom, true)) {
 	      growing_stack_bottom += PGSIZE;
 	};
@@ -226,11 +226,11 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
 	struct supplemental_page_table *spt = &curr->spt;
 	/* Validate the fault */
 	if (is_kernel_vaddr (addr) && user) return false;
-	if (write && (addr == curr->saved_sp - 8)) {
-	  /* The x86-64 PUSH instruction checks access permissions
-	   * before it adjusts the stack pointer, so it may cause
-	   * a page fault 8 bytes below the stack pointer. */
-	  /* Or not allocated stack region access. */
+	void *stack_bottom = pg_round_down (curr->saved_sp);
+	if (write && (stack_bottom - PGSIZE <= addr &&
+	      (uintptr_t) addr < USER_STACK)) {
+	  /* Allow stack growth writing below single PGSIZE range
+	   * of current stack bottom inferred from stack pointer. */
 	  vm_stack_growth (addr);
 	  return true;
 	}
