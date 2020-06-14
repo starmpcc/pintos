@@ -346,16 +346,21 @@ static bool
 create_s (const char *file, unsigned inital_size){
 	is_correct_addr((void*) file);
 	if (strlen(file)>MAX_FILE_NAME) return false;
-	return filesys_create (file, (off_t)inital_size);
+	lock_acquire (&filesys_lock);
+	bool success = filesys_create (file, (off_t)inital_size);
+	lock_release (&filesys_lock);
+	return success;
 }
 
 static bool
 remove_s (const char *file){
 	is_correct_addr((void*) file);
 	if (!is_user_vaddr(file)) exit_s(-1);
-	return filesys_remove(file);
+	lock_acquire (&filesys_lock);
+	bool success = filesys_remove(file);
+	lock_release (&filesys_lock);
+	return success;
 }
-
 
 static int 
 open_s (const char *file){
