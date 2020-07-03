@@ -4,7 +4,7 @@
 #include <round.h>
 #include <string.h>
 #include "filesys/filesys.h"
-#include "filesys/free-map.h"
+#include "filesys/fat.h"
 #include "threads/malloc.h"
 
 /* Identifies an inode. */
@@ -80,7 +80,7 @@ inode_create (disk_sector_t sector, off_t length) {
 		size_t sectors = bytes_to_sectors (length);
 		disk_inode->length = length;
 		disk_inode->magic = INODE_MAGIC;
-		if (free_map_allocate (sectors, &disk_inode->start)) {
+		if (fat_allocate (sectors, &disk_inode->start)) {
 			disk_write (filesys_disk, sector, disk_inode);
 			if (sectors > 0) {
 				static char zeros[DISK_SECTOR_SIZE];
@@ -159,9 +159,8 @@ inode_close (struct inode *inode) {
 
 		/* Deallocate blocks if removed. */
 		if (inode->removed) {
-			free_map_release (inode->sector, 1);
-			free_map_release (inode->data.start,
-					bytes_to_sectors (inode->data.length)); 
+			fat_remove_chain (inode->sector, 0);
+			fat_remove_chain (inode->data.start, 0);
 		}
 
 		free (inode); 

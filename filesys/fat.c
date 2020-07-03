@@ -6,12 +6,15 @@
 #include <stdio.h>
 #include <string.h>
 
+#define CEILING(x, y) ((x) / (y) + ((x) % (y) != 0))
+#define FLOOR(x, y) ((x) / (y))
+
 /* Should be less than DISK_SECTOR_SIZE */
 struct fat_boot {
 	unsigned int magic;
 	unsigned int sectors_per_cluster; /* Fixed to 1 */
 	unsigned int total_sectors;
-	unsigned int fat_start;
+	unsigned int fat_start; /* Start offset in sectors. */
 	unsigned int fat_sectors; /* Size of FAT in sectors. */
 	unsigned int root_dir_cluster;
 };
@@ -20,9 +23,9 @@ struct fat_boot {
 struct fat_fs {
 	struct fat_boot bs;
 	unsigned int *fat;
-	unsigned int fat_length;
+	unsigned int fat_length; /* Number of clusters in FAT. */
 	disk_sector_t data_start;
-	cluster_t last_clst;
+	cluster_t last_clst; /* Last known free cluster candidate. */
 	struct lock write_lock;
 };
 
@@ -152,7 +155,13 @@ fat_boot_create (void) {
 
 void
 fat_fs_init (void) {
-	/* TODO: Your code goes here. */
+	// 1 for boot sector count.
+	unsigned int data_sectors = fat_fs->bs.total_sectors - fat_fs->bs.fat_sectors - 1;
+	// Forget last few sectors when final sectors are not enough to construct a cluster.
+	fat_fs->fat_length = FLOOR(data_sectors, fat_fs->bs.sectors_per_cluster);
+	fat_fs->data_start = fat_fs->bs.fat_start + fat_fs->bs.fat_sectors;
+	fat_fs->last_clst = ROOT_DIR_CLUSTER + 1;
+	lock_init (&fat_fs->write_lock);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -164,30 +173,88 @@ fat_fs_init (void) {
  * Returns 0 if fails to allocate a new cluster. */
 cluster_t
 fat_create_chain (cluster_t clst) {
-	/* TODO: Your code goes here. */
+	cluster_t testing = fat_fs->last_clst;
+	while (fat_get (testing) != 0) {
+		testing += 1;
+		if (testing >= ROOT_DIR_CLUSTER + fat_fs->fat_length)
+			return 0;
+	}
+
+	if (clst != 0) {
+		fat_put (clst, testing);
+	}
+	fat_put (testing, EOChain);
+
+	lock_acquire (&fat_fs->write_lock);
+	fat_fs->last_clst = testing + 1;
+	lock_release (&fat_fs->write_lock);
+
+	return testing;
 }
 
 /* Remove the chain of clusters starting from CLST.
  * If PCLST is 0, assume CLST as the start of the chain. */
 void
 fat_remove_chain (cluster_t clst, cluster_t pclst) {
-	/* TODO: Your code goes here. */
+	if (pclst != 0) {
+		ASSERT (fat_get (pclst) == clst);
+		fat_put(pclst, EOChain);
+	}
+
+	cluster_t current_clst = clst;
+	cluster_t next;
+	while (current_clst != 0) {
+		next = fat_get (current_clst);
+		fat_put (current_clst, 0);
+		if (current_clst < fat_fs->last_clst) {
+			lock_acquire (&fat_fs->write_lock);
+			fat_fs->last_clst = current_clst;
+			lock_release (&fat_fs->write_lock);
+		}
+		if (next == EOChain) break;
+		current_clst = next;
+	}
 }
 
 /* Update a value in the FAT table. */
 void
 fat_put (cluster_t clst, cluster_t val) {
-	/* TODO: Your code goes here. */
+	*(fat_fs->fat + clst) = val;
 }
 
 /* Fetch a value in the FAT table. */
 cluster_t
 fat_get (cluster_t clst) {
-	/* TODO: Your code goes here. */
+	return *(fat_fs->fat + clst);
 }
 
 /* Covert a cluster # to a sector number. */
 disk_sector_t
 cluster_to_sector (cluster_t clst) {
-	/* TODO: Your code goes here. */
+	return fat_fs->data_start + (clst - 1) * fat_fs->bs.sectors_per_cluster;
 }
+
+/* Helper function around fat_create_chain similar to free_map_allocate */
+bool
+fat_allocate (size_t cnt, disk_sector_t *sectorp) {
+	disk_sector_t start = fat_create_chain (0);
+	cnt--;
+
+	disk_sector_t prev = start;
+	while (prev != 0 && cnt > 0) {
+		prev = fat_create_chain (prev);
+		cnt--;
+	}
+
+	if (cnt != 0) {
+		// Fail to allocate count sectors, recover.
+		fat_remove_chain (start, 0);
+		start = 0;
+	}
+	else {
+		// Successful allocation
+		*sectorp = start;
+	}
+	return (start != 0);
+}
+
