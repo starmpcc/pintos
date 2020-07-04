@@ -327,30 +327,36 @@ inode_length (const struct inode *inode) {
 /* Extend inode if requested block is over EOF. */
 void
 extend_inode_if_needed (struct inode *inode, off_t pos, off_t size) {
-	// Extend file
+	if (pos + size <= inode->data.length) return;
+
+	// Add more sector only if required
 	int required_sectors = bytes_to_sectors (pos + size);
 	int current_sectors = bytes_to_sectors (inode->data.length);
 	int new_sector_cnt = required_sectors - current_sectors;
-	if (new_sector_cnt <= 0)
-		return;
 
-	disk_sector_t new_sector = -1;
-	if (fat_allocate (new_sector_cnt, &new_sector)) {
-		// Update inode and disk
-		if (inode->data.start == 0)
-			inode->data.start = new_sector;
-		else {
-			// Update FAT connection
-			disk_sector_t last_sector = byte_to_sector (inode, inode->data.length - 1);
-			cluster_t last_clst = sector_to_cluster (last_sector);
-			ASSERT (fat_get (last_clst) == EOChain);
-			fat_put (last_clst, sector_to_cluster (new_sector));
+	if (new_sector_cnt > 0) {
+		disk_sector_t new_sector = -1;
+		if (fat_allocate (new_sector_cnt, &new_sector)) {
+			// New sector linking
+			if (inode->data.start == 0)
+				inode->data.start = new_sector;
+			else {
+				// Update FAT connection
+				disk_sector_t last_sector = byte_to_sector (inode, inode->data.length - 1);
+				cluster_t last_clst = sector_to_cluster (last_sector);
+				ASSERT (fat_get (last_clst) == EOChain);
+				fat_put (last_clst, sector_to_cluster (new_sector));
+			}
 		}
-
-		inode->data.length = pos + size;
-		if (inode->data.magic != INODE_MAGIC)
-			inode->data.magic = INODE_MAGIC;
-
-		disk_write (filesys_disk, inode->sector, &inode->data);
+		else
+			PANIC("Extend failed!");
 	}
+
+	// Update inode metadata
+	inode->data.length = pos + size;
+	// TODO: Should this exist only for ROOT_DIR which is zero initialized?
+	if (inode->data.magic != INODE_MAGIC)
+		inode->data.magic = INODE_MAGIC;
+
+	disk_write (filesys_disk, inode->sector, &inode->data);
 }
