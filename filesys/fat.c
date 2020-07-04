@@ -234,13 +234,37 @@ cluster_to_sector (cluster_t clst) {
 	return fat_fs->data_start + (clst - 1) * fat_fs->bs.sectors_per_cluster;
 }
 
+cluster_t
+sector_to_cluster (disk_sector_t sector) {
+	return ((sector - fat_fs->data_start) / fat_fs->bs.sectors_per_cluster) + 1;
+}
+
+/* Get next sector in clusters. */
+disk_sector_t
+next_sector (disk_sector_t sector) {
+	disk_sector_t ofs = sector - fat_fs->data_start;
+	unsigned int spc = fat_fs->bs.sectors_per_cluster;
+	if (ofs % spc == (spc - 1)) {
+		// Last sector in cluster
+		cluster_t this_clst = (ofs / spc) + 1;
+		cluster_t next_clst = fat_get (this_clst);
+		if (next_clst == EOChain)
+			return -1;
+		else
+			return cluster_to_sector (next_clst);
+	}
+	else {
+		return (sector + 1);
+	}
+}
+
 /* Helper function around fat_create_chain similar to free_map_allocate */
 bool
 fat_allocate (size_t cnt, disk_sector_t *sectorp) {
-	disk_sector_t start = fat_create_chain (0);
+	cluster_t start = fat_create_chain (0);
 	cnt--;
 
-	disk_sector_t prev = start;
+	cluster_t prev = start;
 	while (prev != 0 && cnt > 0) {
 		prev = fat_create_chain (prev);
 		cnt--;
@@ -253,7 +277,7 @@ fat_allocate (size_t cnt, disk_sector_t *sectorp) {
 	}
 	else {
 		// Successful allocation
-		*sectorp = start;
+		*sectorp = cluster_to_sector (start);
 	}
 	return (start != 0);
 }

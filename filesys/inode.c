@@ -36,6 +36,8 @@ struct inode {
 	struct inode_disk data;             /* Inode content. */
 };
 
+void extend_inode_if_needed (struct inode *, off_t, off_t);
+
 /* Returns the disk sector that contains byte offset POS within
  * INODE.
  * Returns -1 if INODE does not contain data for a byte at offset
@@ -43,8 +45,14 @@ struct inode {
 static disk_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) {
 	ASSERT (inode != NULL);
-	if (pos < inode->data.length)
-		return inode->data.start + pos / DISK_SECTOR_SIZE;
+	if (pos < inode->data.length) {
+		disk_sector_t sector = inode->data.start;
+		while (pos >= DISK_SECTOR_SIZE) {
+			sector = next_sector (sector);
+			pos -= DISK_SECTOR_SIZE;
+		}
+		return sector;
+	}
 	else
 		return -1;
 }
@@ -85,9 +93,12 @@ inode_create (disk_sector_t sector, off_t length) {
 			if (sectors > 0) {
 				static char zeros[DISK_SECTOR_SIZE];
 				size_t i;
+				disk_sector_t target_sector = disk_inode->start;
 
-				for (i = 0; i < sectors; i++) 
-					disk_write (filesys_disk, disk_inode->start + i, zeros); 
+				for (i = 0; i < sectors; i++) {
+					disk_write (filesys_disk, target_sector, zeros);
+					target_sector = next_sector (target_sector);
+				}
 			}
 			success = true; 
 		} 
@@ -240,6 +251,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 		return 0;
 
 	while (size > 0) {
+		extend_inode_if_needed (inode, offset, size);
+
 		/* Sector to write, starting byte offset within sector. */
 		disk_sector_t sector_idx = byte_to_sector (inode, offset);
 		int sector_ofs = offset % DISK_SECTOR_SIZE;
@@ -309,4 +322,35 @@ inode_allow_write (struct inode *inode) {
 off_t
 inode_length (const struct inode *inode) {
 	return inode->data.length;
+}
+
+/* Extend inode if requested block is over EOF. */
+void
+extend_inode_if_needed (struct inode *inode, off_t pos, off_t size) {
+	// Extend file
+	int required_sectors = bytes_to_sectors (pos + size);
+	int current_sectors = bytes_to_sectors (inode->data.length);
+	int new_sector_cnt = required_sectors - current_sectors;
+	if (new_sector_cnt <= 0)
+		return;
+
+	disk_sector_t new_sector = -1;
+	if (fat_allocate (new_sector_cnt, &new_sector)) {
+		// Update inode and disk
+		if (inode->data.start == 0)
+			inode->data.start = new_sector;
+		else {
+			// Update FAT connection
+			disk_sector_t last_sector = byte_to_sector (inode, inode->data.length - 1);
+			cluster_t last_clst = sector_to_cluster (last_sector);
+			ASSERT (fat_get (last_clst) == EOChain);
+			fat_put (last_clst, sector_to_cluster (new_sector));
+		}
+
+		inode->data.length = pos + size;
+		if (inode->data.magic != INODE_MAGIC)
+			inode->data.magic = INODE_MAGIC;
+
+		disk_write (filesys_disk, inode->sector, &inode->data);
+	}
 }
