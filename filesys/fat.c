@@ -261,6 +261,9 @@ next_sector (disk_sector_t sector) {
 /* Helper function around fat_create_chain similar to free_map_allocate */
 bool
 fat_allocate (size_t cnt, disk_sector_t *sectorp) {
+	if (cnt == 0) return true;
+	ASSERT (cnt > 0);
+
 	cluster_t start = fat_create_chain (0);
 	cnt--;
 
