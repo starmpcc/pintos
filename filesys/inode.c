@@ -6,7 +6,6 @@
 #include "filesys/filesys.h"
 #include "filesys/fat.h"
 #include "threads/malloc.h"
-
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
@@ -33,7 +32,6 @@ struct inode {
 	int open_cnt;                       /* Number of openers. */
 	bool removed;                       /* True if deleted, false otherwise. */
 	int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
-	int type;							/* 0: file, 1:dir. */
 	struct inode_disk data;             /* Inode content. */
 };
 

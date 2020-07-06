@@ -6,6 +6,8 @@
 #include "filesys/fat.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include <bitmap.h>
+#include "filesys/inode.h"
 
 /* A directory. */
 struct dir {
@@ -20,11 +22,21 @@ struct dir_entry {
 	bool in_use;                        /* In use or free? */
 };
 
+
+void dir_init() {
+	dir_map = bitmap_create(16384); //8MB/512B
+
+}
+
 /* Creates a directory with space for ENTRY_CNT entries in the
  * given SECTOR.  Returns true if successful, false on failure. */
 bool
 dir_create (disk_sector_t sector, size_t entry_cnt) {
-	return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+	bool success =  inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+	if (success){
+		bitmap_mark(dir_map, sector);
+	}
+	return success;
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -195,6 +207,7 @@ dir_remove (struct dir *dir, const char *name) {
 		goto done;
 
 	/* Remove inode. */
+	bitmap_reset(dir_map, inode_get_inumber(inode));
 	inode_remove (inode);
 	success = true;
 

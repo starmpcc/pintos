@@ -30,6 +30,7 @@ filesys_init (bool format) {
 		do_format ();
 
 	fat_open ();
+	dir_init ();
 #else
 	/* Original FS */
 	free_map_init ();

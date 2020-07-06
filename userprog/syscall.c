@@ -23,6 +23,9 @@
 #include "vm/file.h"
 #include "filesys/directory.h"
 #include <string.h>
+#include "filesys/inode.h"
+#include "kernel/bitmap.h"
+
 void syscall_entry (void);
 extern struct lock filesys_lock;
 //syscall functions
@@ -185,12 +188,14 @@ init_stdio(void){
 	stdin->dup_tag = -1;
 	stdin->dup_cnt = 0;
 	stdin->std = 0;
+	stdin->dir = NULL;
 	struct thread_file* stdout = (struct thread_file *) malloc (sizeof (struct thread_file));
 	stdout->file = NULL;
 	stdout->fd = 1;
 	stdout->dup_tag = -1;
 	stdout->dup_cnt = 0;
 	stdout->std = 1;
+	stdout->dir = NULL;
 	list_insert_ordered (&t->open_file, &stdin->elem, thread_fd_less, NULL);
 	list_insert_ordered (&t->open_file, &stdout->elem, thread_fd_less, NULL);
 	t->open_file_cnt = 2;
@@ -267,6 +272,7 @@ fork_file(struct thread* current, struct thread* parent){
 
 			current_tf->dup_cnt = parent_tf ->dup_cnt;
 			current_tf->std = parent_tf->std;
+			current_tf->dir = parent_tf->dir;
 
 			list_insert_ordered(&current ->open_file, &current_tf ->elem, thread_fd_less, NULL);
 			cnt++;
@@ -330,62 +336,6 @@ get_fd(int fd){
 	return fd;
 }
 
-#define MAX_DIR_DEPTH 32
-#define MAGIC_STR "asdfasdf"
-static uint64_t
-get_last_on_path(const char* name){
-	struct dir* dir = thread_current()->current_dir;
-	if (dir==NULL) dir = dir_open_root();
-	char* dir_array[MAX_DIR_DEPTH] = {MAGIC_STR,};
-	
-	//directory support
-	char* buf;
-	char* cut;
-	int i = 0;
-	if (strchr(name, '/') == NULL){
-		lock_acquire(&filesys_lock);
-		struct file* file_struct = filesys_open(name);
-		lock_release(&filesys_lock);
-		if (file_struct == NULL) return -1;
-		return (uint64_t) file_struct;
-	}
-	while ((cut = strtok_r(name, "/", &buf))!=NULL){
-		dir_array[i] = cut;
-		i++;
-	}
-	for (i = 0; strcmp(dir_array[i], MAGIC_STR)!=0; i++){
-		
-		//if the end is / (try to open directory)
-		if (strcmp(dir_array[i+1], "")==0){
-			struct inode* inode = NULL;
-			dir_lookup(dir, dir_array[i], &inode);
-			dir_close(dir);
-			dir = dir_open(inode);
-			dir_lookup(dir, dir_array[i+1], &inode);
-			dir_close(dir);
-			dir = dir_open(inode);
-			if (dir == NULL) return -1;
-			return (uint64_t) dir;			
-		}
-		//if the end is filename
-		else if (strcmp(dir_array[i+1], MAGIC_STR)==0){
-			lock_acquire(&filesys_lock);
-			struct file* file_struct = filesys_open(dir_array[i]);
-			lock_release(&filesys_lock);
-			if (file_struct == NULL) return -1;
-			return (uint64_t) file_struct;
-		}
-		else{
-			struct inode* inode = NULL;
-			dir_lookup(dir, dir_array[i], &inode);
-			dir_close(dir);
-			dir = dir_open(inode);
-			if (dir==NULL) return -1;
-		}
-	}
-	NOT_REACHED();
-}
-
 static void
 halt_s (void){
 	power_off();
@@ -431,6 +381,8 @@ remove_s (const char *file){
 	return success;
 }
 
+#define MAX_DIR_DEPTH 32
+
 static int 
 open_s (const char *file){
 	init_stdio();
@@ -439,36 +391,66 @@ open_s (const char *file){
 	if (t->open_file_cnt >128) return -1;
 	t->open_file_cnt++;
 	int fd=++t->fd_max;
-	uint64_t last = get_last_on_path(file);
-	if (last == (uint64_t)-1) return -1;
-	if (file[strlen(file)-1]==""){
-		//directory case
-		struct dir* dir = (struct dir*) dir;
-		if (dir == NULL) return -1;
-		struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
-		tf->fd = fd;
-		tf->file = NULL;
-		tf->dir = dir;
-		tf -> dup_tag = -1;
-		tf -> dup_cnt = 0;
-		tf -> std = -1;
-		list_insert_ordered(&thread_current () -> open_file, &tf->elem, thread_fd_less, NULL);
+
+	struct dir* dir = t->current_dir;
+	if (dir == NULL)
+		dir = dir_open_root();
+	char* dir_array[MAX_DIR_DEPTH]={};
+	
+	//directory support
+	char* buf;
+	char* cut;
+	struct inode* inode = NULL;
+	int i = 0;
+	cut = strtok_r((char*)file, "/", &buf);
+	while (cut!=NULL){
+		dir_array[i] = cut;
+		i++;
+		cut = strtok_r(NULL, "/", &buf);
+	}
+	for (int j=0;j<=i;i++){
+		if (dir_array[j+1]==NULL){
+			dir_lookup(dir, dir_array[j], &inode);
+			if (inode==NULL) return -1;
+			if (bitmap_test(dir_map, inode_get_inumber(inode)) == 1){
+				dir = dir_open(inode);
+				if (dir == NULL) return -1;
+				struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
+				tf->fd = fd;
+				tf->file = NULL;
+				tf->dir = dir;
+				tf -> dup_tag = -1;
+				tf -> dup_cnt = 0;
+				tf -> std = -1;
+				list_insert_ordered(&thread_current () -> open_file, &tf->elem, thread_fd_less, NULL);
+				return fd;	
 		return fd;	
-	}
-	else{
-		//file case
-		struct file* file_struct = (struct file*) last;
-		if (file_struct == NULL) return -1;
-		struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
-		tf->fd = fd;
-		tf->file = file_struct;
-		tf -> dup_tag = -1;
-		tf -> dup_cnt = 0;
-		tf -> std = -1;
-		tf -> dir = NULL;
-		list_insert_ordered(&thread_current () -> open_file, &tf->elem, thread_fd_less, NULL);
+				return fd;	
+			}
+			else{
+				lock_acquire(&filesys_lock);
+				struct file* file_struct = filesys_open(dir_array[j]);
+				lock_release(&filesys_lock);
+				if (file_struct == NULL) return -1;
+				struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
+				tf->fd = fd;
+				tf->file = file_struct;
+				tf -> dup_tag = -1;
+				tf -> dup_cnt = 0;
+				tf -> std = -1;
+				tf -> dir = NULL;
+				list_insert_ordered(&thread_current () -> open_file, &tf->elem, thread_fd_less, NULL);
+				return fd;	
 		return fd;
+				return fd;	
+			}
+		}
+		dir_lookup(dir, dir_array[j], &inode);
+		dir_close(dir);
+		dir = dir_open(inode);
+		if (dir==NULL) return -1;
 	}
+
 }
 
 static int
@@ -518,6 +500,7 @@ write_s (int fd, const void *buffer, unsigned size){
 		putbuf(buffer, size);
 		return size;
 	}
+	else if (tf->dir!= NULL) return -1;
 	else{
 		is_correct_addr((void*) buffer);
 		struct file* file = get_file (fd);
@@ -618,54 +601,48 @@ chdir_s (const char* dir){
 
 static bool
 mkdir_s (const char* name){
-	struct dir* dir = thread_current()->current_dir;
-	if (dir==NULL) dir = dir_open_root();
 
-	char* dir_array[MAX_DIR_DEPTH] = {MAGIC_STR,};
+	struct thread* t= thread_current();
+	struct dir* dir = t->current_dir;
+	if (dir == NULL)
+		dir = dir_open_root();
+	char* dir_array[MAX_DIR_DEPTH]={};
 	
 	//directory support
 	char* buf;
 	char* cut;
+	struct inode* inode = NULL;
 	int i = 0;
-	while ((cut = strtok_r(name, '/', &buf))!=NULL){
+	cut = strtok_r((char*)name, "/", &buf);
+	while (cut!=NULL){
 		dir_array[i] = cut;
 		i++;
+		cut = strtok_r(NULL, "/", &buf);
 	}
-	for (i = 0; strcmp(dir_array[i], MAGIC_STR)!=0; i++){
-		
-		//if the end is / (try to open directory)
-		if (strcmp(dir_array[i+1], "")==0){
-			struct inode* inode = NULL;
-			dir_lookup(dir, dir_array[i], &inode);
-			dir_close(dir);
-			dir = dir_open(inode);
-			if (dir == NULL) return 0;
-
+	for (int j=0;j<=i;i++){
+		if (dir_array[j+1]==NULL){
+			dir_lookup(dir, dir_array[j], &inode);
+			if (inode!=NULL) return 0;
 			disk_sector_t inode_sector = 0;
 			bool success = (dir != NULL
 					&& fat_allocate (1, &inode_sector)
 					&& inode_create (inode_sector, 512)
 					&& dir_create (inode_sector, 16)  ///temporal number
-					&& dir_add (dir, dir_array[i+1], inode_sector));
-			if (!success && inode_sector != 0)
+					&& dir_add (dir, dir_array[j], inode_sector));
+			if (!success && inode_sector != 0){
 				fat_remove_chain (inode_sector, 0);
-
+				dir_remove(dir, dir_array[j]);
+			}
 			dir_close (dir);
-
 			return success;
 		}
-		//if the end is filename
-		else if (strcmp(dir_array[i+1], MAGIC_STR)==0){
-			return 0;
-		}
-		else{
-			struct inode* inode = NULL;
-			dir_lookup(dir, dir_array[i], &inode);
-			dir_close(dir);
-			dir = dir_open(inode);
-		}
+		
+		dir_lookup(dir, dir_array[j], &inode);
+		dir_close(dir);
+		dir = dir_open(inode);
+		if (dir==NULL) return 0;
 	}
-	NOT_REACHED();
+	return 0;
 }
 static bool
 readdir_s (int fd, char* name){
