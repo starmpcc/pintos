@@ -54,7 +54,7 @@ static bool chdir_s (const char* name);
 static bool mkdir_s (const char* name);
 static bool readdir_s (int fd, char* name);
 static bool isdir_s (int fd);
-static bool inumber_s (int fd);
+static int inumber_s (int fd);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -396,7 +396,7 @@ create_s (const char *file, unsigned inital_size){
 			if (inode!=NULL) return 0;
 			if (strlen(dir_array[j])>MAX_FILE_NAME) return 0;
 			struct dir* old_dir = t->current_dir;
-			t->current_dir = dir;
+			t->current_dir = dir_reopen(dir);
 			lock_acquire(&filesys_lock);
 			filesys_create(dir_array[j], (off_t) inital_size);
 			lock_release(&filesys_lock);
@@ -416,11 +416,58 @@ create_s (const char *file, unsigned inital_size){
 static bool
 remove_s (const char *file){
 	is_correct_addr((void*) file);
-	if (!is_user_vaddr(file)) exit_s(-1);
-	lock_acquire (&filesys_lock);
-	bool success = filesys_remove(file);
-	lock_release (&filesys_lock);
-	return success;
+
+	struct thread* t= thread_current();
+	struct dir* dir = t->current_dir;
+	if (dir == NULL)
+		dir = dir_open_root();
+	char* dir_array[MAX_DIR_DEPTH]={};
+	char* tmp = malloc(sizeof(char)*512);
+	strlcpy(tmp,file,512);
+	//directory support
+	char* buf;
+	char* cut;
+	struct inode* inode = NULL;
+	int i = 0;
+	cut = strtok_r((char*)tmp, "/", &buf);
+	while (cut!=NULL){
+		dir_array[i] = cut;
+		i++;
+		cut = strtok_r(NULL, "/", &buf);
+	}
+	for (int j=0;j<=i;j++){
+		if (dir_array[j+1]==NULL){
+			if (dir_array[j]==NULL) return 0;
+			dir_lookup(dir, dir_array[j], &inode);
+			if (inode==NULL) return 0;
+			if (bitmap_test(dir_map, inode_get_inumber(inode)) == 1){
+				struct dir* old_dir = t->current_dir;
+				t->current_dir = dir_reopen(dir);
+				dir_remove(dir, dir_array[j]);
+				t->current_dir = old_dir;
+				//parent delete?
+				free(tmp);
+				return 1;	
+			}
+			else{
+				struct dir* old_dir = t->current_dir;
+				t->current_dir = dir_reopen(dir);
+				lock_acquire(&filesys_lock);
+				filesys_remove(dir_array[j]);
+				lock_release(&filesys_lock);
+				t->current_dir = old_dir;
+				free(tmp);
+				return 1;
+			}
+
+		}
+		
+		dir_lookup(dir, dir_array[j], &inode);
+		dir_close(dir);
+		dir = dir_open(inode);
+		if (dir==NULL) return 0;
+	}
+	return 0;
 }
 
 static int 
@@ -662,6 +709,7 @@ chdir_s (const char* name){
 			dir_lookup(dir, dir_array[j], &inode);
 			dir_close(dir);
 			dir = dir_open(inode);
+			if (dir==NULL) return 0;
 			t->current_dir = dir;
 			free(tmp);
 			return 1;
@@ -724,15 +772,20 @@ mkdir_s (const char* name){
 static bool
 readdir_s (int fd, char* name){
 	struct thread_file* tf = get_tf (fd);
-//	tf->file = 
+	if (strlen(name)>14) return false;
+	return dir_readdir(tf->dir, name);
 }
 
 static bool
 isdir_s (int fd){
-
+	struct thread_file* tf = get_tf(fd);
+	if (tf->dir!=NULL) return true;
 }
 
-static bool
+static int
 inumber_s (int fd){
-
+	struct thread_file* tf = get_tf(fd);
+	ASSERT(tf->dir!=NULL);
+	struct dir* dir = tf->dir;
+	inode_get_inumber(dir_get_inode(dir));
 }
