@@ -15,7 +15,8 @@ struct inode_disk {
 	disk_sector_t start;                /* First data sector. */
 	off_t length;                       /* File size in bytes. */
 	unsigned magic;                     /* Magic number. */
-	uint32_t unused[125];               /* Not used. */
+	uint32_t type;
+	uint32_t unused[124];               /* Not used. */
 };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -32,6 +33,7 @@ struct inode {
 	int open_cnt;                       /* Number of openers. */
 	bool removed;                       /* True if deleted, false otherwise. */
 	int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
+	bool type;							/* 0: file, 1: dir */
 	struct inode_disk data;             /* Inode content. */
 };
 
@@ -354,8 +356,26 @@ extend_inode_if_needed (struct inode *inode, off_t pos, off_t size) {
 	// Update inode metadata
 	inode->data.length = pos + size;
 	// TODO: Should this exist only for ROOT_DIR which is zero initialized?
-	if (inode->data.magic != INODE_MAGIC)
-		inode->data.magic = INODE_MAGIC;
+	/*if (inode->data.magic != INODE_MAGIC)
+		inode->data.magic = INODE_MAGIC; */
 
 	disk_write (filesys_disk, inode->sector, &inode->data);
+}
+
+void
+inode_set_dir(disk_sector_t inum){
+	struct inode* inode = inode_open(inum);
+	inode->data.type = DIR_INODE;
+	inode_close(inode);
+}
+
+void
+inode_set_file(disk_sector_t inum){
+	struct inode* inode = inode_open(inum);
+	inode->data.type = FILE_INODE;
+	inode_close(inode);
+}
+
+bool inode_type(struct inode* inode){
+	return inode->data.type;
 }

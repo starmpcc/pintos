@@ -24,7 +24,6 @@
 #include "filesys/directory.h"
 #include <string.h>
 #include "filesys/inode.h"
-#include "kernel/bitmap.h"
 
 void syscall_entry (void);
 extern struct lock filesys_lock;
@@ -440,7 +439,7 @@ remove_s (const char *file){
 			if (dir_array[j]==NULL) return 0;
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode==NULL) return 0;
-			if (bitmap_test(dir_map, inode_get_inumber(inode)) == 1){
+			if (inode_type(inode) == DIR_INODE){
 				struct dir* old_dir = t->current_dir;
 				t->current_dir = dir_reopen(dir);
 				dir_remove(dir, dir_array[j]);
@@ -514,7 +513,7 @@ open_s (const char *file){
 		if (dir_array[j+1]==NULL){
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode==NULL) return -1;
-			if (bitmap_test(dir_map, inode_get_inumber(inode)) == 1){
+			if (inode_type(inode)==DIR_INODE){
 				dir = dir_open(inode);
 				if (dir == NULL) return -1;
 				struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
