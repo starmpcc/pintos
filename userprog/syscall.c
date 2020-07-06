@@ -50,7 +50,7 @@ static void is_correct_addr(void* ptr);
 static void check_writable_addr(void* ptr);
 struct thread_file* get_tf(int fd);
 
-static bool chdir_s (const char* dir);
+static bool chdir_s (const char* name);
 static bool mkdir_s (const char* name);
 static bool readdir_s (int fd, char* name);
 static bool isdir_s (int fd);
@@ -67,6 +67,7 @@ static bool inumber_s (int fd);
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
+#define MAX_DIR_DEPTH 32
 
 void
 syscall_init (void) {
@@ -240,8 +241,13 @@ close_file(int fd){
 			struct thread_file* thread_file = list_entry (i, struct thread_file, elem);
 			if (fd == thread_file->fd){
 				if (thread_file -> dup_cnt == 0){
-					if (thread_file -> std == -1)
-						file_close(thread_file -> file);
+					if (thread_file -> std == -1){
+						if (thread_file->dir!= NULL)
+							dir_close(thread_file->dir);
+						else
+							file_close(thread_file -> file);
+					}
+
 				}
 				else
 					thread_file ->dup_cnt--;
@@ -364,11 +370,47 @@ exec_s (char *input) {
 static bool 
 create_s (const char *file, unsigned inital_size){
 	is_correct_addr((void*) file);
-	if (strlen(file)>MAX_FILE_NAME) return false;
-	lock_acquire (&filesys_lock);
-	bool success = filesys_create (file, (off_t)inital_size);
-	lock_release (&filesys_lock);
-	return success;
+
+	struct thread* t= thread_current();
+	struct dir* dir = t->current_dir;
+	if (dir == NULL)
+		dir = dir_open_root();
+	char* dir_array[MAX_DIR_DEPTH]={};
+	char* tmp = malloc(sizeof(char)*512);
+	strlcpy(tmp,file,512);
+	//directory support
+	char* buf;
+	char* cut;
+	struct inode* inode = NULL;
+	int i = 0;
+	cut = strtok_r((char*)tmp, "/", &buf);
+	while (cut!=NULL){
+		dir_array[i] = cut;
+		i++;
+		cut = strtok_r(NULL, "/", &buf);
+	}
+	for (int j=0;j<=i;j++){
+		if (dir_array[j+1]==NULL){
+			if (dir_array[j]==NULL) return 0;
+			dir_lookup(dir, dir_array[j], &inode);
+			if (inode!=NULL) return 0;
+			if (strlen(dir_array[j])>MAX_FILE_NAME) return 0;
+			struct dir* old_dir = t->current_dir;
+			t->current_dir = dir;
+			lock_acquire(&filesys_lock);
+			filesys_create(dir_array[j], (off_t) inital_size);
+			lock_release(&filesys_lock);
+			t->current_dir = old_dir;
+			free(tmp);
+			return 1;
+		}
+		
+		dir_lookup(dir, dir_array[j], &inode);
+		dir_close(dir);
+		dir = dir_open(inode);
+		if (dir==NULL) return 0;
+	}
+	return 0;
 }
 
 static bool
@@ -380,8 +422,6 @@ remove_s (const char *file){
 	lock_release (&filesys_lock);
 	return success;
 }
-
-#define MAX_DIR_DEPTH 32
 
 static int 
 open_s (const char *file){
@@ -395,20 +435,23 @@ open_s (const char *file){
 	struct dir* dir = t->current_dir;
 	if (dir == NULL)
 		dir = dir_open_root();
+
 	char* dir_array[MAX_DIR_DEPTH]={};
-	
+	char* tmp = malloc(sizeof(char)*512);
+	strlcpy(tmp,file,512);
 	//directory support
 	char* buf;
 	char* cut;
 	struct inode* inode = NULL;
 	int i = 0;
-	cut = strtok_r((char*)file, "/", &buf);
+	cut = strtok_r((char*)tmp, "/", &buf);
 	while (cut!=NULL){
 		dir_array[i] = cut;
 		i++;
 		cut = strtok_r(NULL, "/", &buf);
 	}
-	for (int j=0;j<=i;i++){
+	if (dir_array[0]== NULL) return -1;
+	for (int j=0;j<=i;j++){
 		if (dir_array[j+1]==NULL){
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode==NULL) return -1;
@@ -423,9 +466,8 @@ open_s (const char *file){
 				tf -> dup_cnt = 0;
 				tf -> std = -1;
 				list_insert_ordered(&thread_current () -> open_file, &tf->elem, thread_fd_less, NULL);
-				return fd;	
-		return fd;	
-				return fd;	
+				free(tmp);
+				return fd;
 			}
 			else{
 				lock_acquire(&filesys_lock);
@@ -440,9 +482,8 @@ open_s (const char *file){
 				tf -> std = -1;
 				tf -> dir = NULL;
 				list_insert_ordered(&thread_current () -> open_file, &tf->elem, thread_fd_less, NULL);
-				return fd;	
-		return fd;
-				return fd;	
+				free(tmp);
+				return fd;
 			}
 		}
 		dir_lookup(dir, dir_array[j], &inode);
@@ -595,45 +636,81 @@ munmap_s (void* addr){
 }
 
 static bool
-chdir_s (const char* dir){
-
-}
-
-static bool
-mkdir_s (const char* name){
-
+chdir_s (const char* name){
+	is_correct_addr(name);
+	if (*name==NULL) return 0;
 	struct thread* t= thread_current();
 	struct dir* dir = t->current_dir;
 	if (dir == NULL)
 		dir = dir_open_root();
 	char* dir_array[MAX_DIR_DEPTH]={};
-	
+	char* tmp = malloc(sizeof(char)*512);
+	strlcpy(tmp,name,512);
 	//directory support
 	char* buf;
 	char* cut;
 	struct inode* inode = NULL;
 	int i = 0;
-	cut = strtok_r((char*)name, "/", &buf);
+	cut = strtok_r((char*)tmp, "/", &buf);
 	while (cut!=NULL){
 		dir_array[i] = cut;
 		i++;
 		cut = strtok_r(NULL, "/", &buf);
 	}
-	for (int j=0;j<=i;i++){
+	for (int j=0;j<=i;j++){
+		if (dir_array[j+1]==NULL){
+			dir_lookup(dir, dir_array[j], &inode);
+			dir_close(dir);
+			dir = dir_open(inode);
+			t->current_dir = dir;
+			free(tmp);
+			return 1;
+		}
+		
+		dir_lookup(dir, dir_array[j], &inode);
+		dir_close(dir);
+		dir = dir_open(inode);
+		if (dir==NULL) return 0;
+	}
+	return 0;
+}
+
+static bool
+mkdir_s (const char* name){
+	is_correct_addr(name);
+	if (*name==NULL) return 0;
+	struct thread* t= thread_current();
+	struct dir* dir = t->current_dir;
+	if (dir == NULL)
+		dir = dir_open_root();
+	char* dir_array[MAX_DIR_DEPTH]={};
+	char* tmp = malloc(sizeof(char)*512);
+	strlcpy(tmp,name,512);
+	//directory support
+	char* buf;
+	char* cut;
+	struct inode* inode = NULL;
+	int i = 0;
+	cut = strtok_r((char*)tmp, "/", &buf);
+	while (cut!=NULL){
+		dir_array[i] = cut;
+		i++;
+		cut = strtok_r(NULL, "/", &buf);
+	}
+	for (int j=0;j<=i;j++){
 		if (dir_array[j+1]==NULL){
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode!=NULL) return 0;
 			disk_sector_t inode_sector = 0;
 			bool success = (dir != NULL
 					&& fat_allocate (1, &inode_sector)
-					&& inode_create (inode_sector, 512)
 					&& dir_create (inode_sector, 16)  ///temporal number
 					&& dir_add (dir, dir_array[j], inode_sector));
 			if (!success && inode_sector != 0){
 				fat_remove_chain (inode_sector, 0);
 				dir_remove(dir, dir_array[j]);
 			}
-			dir_close (dir);
+			free(tmp);
 			return success;
 		}
 		

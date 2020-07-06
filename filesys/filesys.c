@@ -7,6 +7,7 @@
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "devices/disk.h"
+#include "threads/thread.h"
 
 /* The disk that contains the file system. */
 struct disk *filesys_disk;
@@ -61,7 +62,10 @@ filesys_done (void) {
 bool
 filesys_create (const char *name, off_t initial_size) {
 	disk_sector_t inode_sector = 0;
-	struct dir *dir = dir_open_root ();
+	struct dir *dir = thread_current()->current_dir;
+	if (dir==NULL)
+		dir = dir_open_root();
+	
 	bool success = (dir != NULL
 			&& fat_allocate (1, &inode_sector)
 			&& inode_create (inode_sector, initial_size)
@@ -81,7 +85,9 @@ filesys_create (const char *name, off_t initial_size) {
  * or if an internal memory allocation fails. */
 struct file *
 filesys_open (const char *name) {
-	struct dir *dir = dir_open_root ();
+	struct dir *dir = thread_current()->current_dir;
+	if (dir==NULL)
+		dir = dir_open_root();
 	struct inode *inode = NULL;
 
 	if (dir != NULL)
