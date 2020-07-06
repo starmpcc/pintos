@@ -10,7 +10,9 @@
 #ifdef VM
 #include "vm/vm.h"
 #endif
-
+#ifdef FILESYS
+#include "filesys/directory.h"
+#endif
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -119,7 +121,9 @@ struct thread {
 	 * from user to kernel mode. */
 	uintptr_t saved_sp;
 #endif
-
+#ifdef FILESYS
+	struct dir* current_dir;
+#endif
 //for 2 userprog
 	struct list open_file;
 	int fd_max;
@@ -152,6 +156,7 @@ struct priority_bucket {
 
 struct thread_file {
 	struct file* file;
+	struct dir* dir;
 	int fd;
 	struct list_elem elem;
 	//for dup2, default -1

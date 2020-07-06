@@ -331,6 +331,7 @@ thread_create (const char *name, int priority,
 	t->fd_max=1;
 	if (thread_current()->tid != 1 && thread_current()->tid != 0){
 		t->fd_max = thread_current()->fd_max;
+		t->current_dir = thread_current()->current_dir;
 	}
 	/* Add to run queue. */
 	thread_unblock (t);
@@ -676,6 +677,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 		t->block_unblock=0;
 	}
 
+	t->current_dir = NULL;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
