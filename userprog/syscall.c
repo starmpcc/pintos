@@ -479,6 +479,18 @@ open_s (const char *file){
 	t->open_file_cnt++;
 	int fd=++t->fd_max;
 
+	if (strcmp(file, "/")==0){
+		struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
+		tf->fd = fd;
+		tf->file = NULL;
+		tf->dir = dir_open_root();
+		tf -> dup_tag = -1;
+		tf -> dup_cnt = 0;
+		tf -> std = -1;
+		list_insert_ordered(&thread_current () -> open_file, &tf->elem, thread_fd_less, NULL);
+		return fd;
+	}
+
 	struct dir* dir = t->current_dir;
 	if (dir == NULL)
 		dir = dir_open_root();
@@ -517,9 +529,12 @@ open_s (const char *file){
 				return fd;
 			}
 			else{
+				struct dir* old_dir = t->current_dir;
+				t->current_dir = dir_reopen(dir);
 				lock_acquire(&filesys_lock);
 				struct file* file_struct = filesys_open(dir_array[j]);
 				lock_release(&filesys_lock);
+				t->current_dir = old_dir;
 				if (file_struct == NULL) return -1;
 				struct thread_file* tf = (struct thread_file *) malloc(sizeof(struct thread_file));
 				tf->fd = fd;
