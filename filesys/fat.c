@@ -5,6 +5,8 @@
 #include "threads/synch.h"
 #include <stdio.h>
 #include <string.h>
+#include "filesys/inode.h"
+#include "filesys/directory.h"
 
 #define CEILING(x, y) ((x) / (y) + ((x) % (y) != 0))
 #define FLOOR(x, y) ((x) / (y))
@@ -131,11 +133,15 @@ fat_create (void) {
 	fat_put (ROOT_DIR_CLUSTER, EOChain);
 
 	// Fill up ROOT_DIR_CLUSTER region with 0
+	bool success = dir_create(cluster_to_sector (ROOT_DIR_CLUSTER), 16);
+	if (!success)
+		PANIC ("FAT create failed due to OOM");
+/*
 	uint8_t *buf = calloc (1, DISK_SECTOR_SIZE);
 	if (buf == NULL)
 		PANIC ("FAT create failed due to OOM");
 	disk_write (filesys_disk, cluster_to_sector (ROOT_DIR_CLUSTER), buf);
-	free (buf);
+	free (buf);*/
 }
 
 void

@@ -365,14 +365,18 @@ extend_inode_if_needed (struct inode *inode, off_t pos, off_t size) {
 void
 inode_set_dir(disk_sector_t inum){
 	struct inode* inode = inode_open(inum);
+	disk_read (filesys_disk, inode->sector, &inode->data);
 	inode->data.type = DIR_INODE;
+	disk_write(filesys_disk, inode->sector, &inode->data);
 	inode_close(inode);
 }
 
 void
 inode_set_file(disk_sector_t inum){
 	struct inode* inode = inode_open(inum);
+	disk_read (filesys_disk, inode->sector, &inode->data);
 	inode->data.type = FILE_INODE;
+	disk_write(filesys_disk, inode->sector, &inode->data);
 	inode_close(inode);
 }
 
