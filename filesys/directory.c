@@ -21,6 +21,7 @@ struct dir_entry {
 	disk_sector_t inode_sector;         /* Sector number of header. */
 	char name[NAME_MAX + 1];            /* Null terminated file name. */
 	bool in_use;                        /* In use or free? */
+	bool link;							/* 0: normal 1: link */
 };
 
 
@@ -44,6 +45,9 @@ dir_create (disk_sector_t sector, size_t entry_cnt) {
 	return success;
 }
 
+bool link_create(struct dir* target, struct dir* position){
+	
+}
 /* Opens and returns the directory for the given INODE, of which
  * it takes ownership.  Returns a null pointer on failure. */
 struct dir *
@@ -243,4 +247,17 @@ struct dir* pdir(struct dir * dir){
 		return dir_open_root();
 	}
 	return dir_open(inode_open(dir->pdir));
+}
+
+bool is_link(struct dir* dir, char* name){
+	struct dir_entry e;
+	lookup(dir, name ,&e, NULL);
+	return e.link;
+}
+
+void set_link(struct dir* dir, char* name){
+	struct dir_entry e;
+	bool success = lookup(dir, name ,&e, NULL);
+	ASSERT(success);
+	e.link = 1;
 }

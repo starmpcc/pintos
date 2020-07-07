@@ -54,6 +54,7 @@ static bool mkdir_s (const char* name);
 static bool readdir_s (int fd, char* name);
 static bool isdir_s (int fd);
 static int inumber_s (int fd);
+static int symlink_s (const char* target, const char* linkpath);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -154,6 +155,9 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_INUMBER:
 			f->R.rax = inumber_s((int) f->R.rdi);
+			break;
+		case SYS_SYMLINK:
+			f->R.rax = symlink_s((const char*) f->R.rdi, (const char*) f->R.rsi);
 			break;
 	/* Extra for Project 2 */
 		case SYS_DUP2:
@@ -413,6 +417,7 @@ create_s (const char *file, unsigned inital_size){
 	return 0;
 }
 
+
 static bool
 remove_s (const char *file){
 	is_correct_addr((void*) file);
@@ -453,6 +458,11 @@ remove_s (const char *file){
 			else dir_close(pdir(dir));
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode==NULL) return 0;
+			if (is_link(dir, dir_array[j])){
+				dir_remove(dir ,dir_array[j]);
+				free (tmp);
+				return 1;
+			}
 			if (inode_type(inode) == DIR_INODE){
 				struct dir* target = dir_open(inode);
 				dir_remove(target, ".");
@@ -822,4 +832,109 @@ inumber_s (int fd){
 	ASSERT(tf->dir!=NULL);
 	struct dir* dir = tf->dir;
 	inode_get_inumber(dir_get_inode(dir));
+}
+
+static struct inode*
+get_inode_of_target(const char* target){
+	is_correct_addr((void*) target);
+	struct thread* t= thread_current();
+	if (strcmp(target, "/")==0){
+		return -1;
+	}
+	struct dir* dir = t->current_dir;
+	if (dir == NULL)
+		dir = dir_open_root();
+
+	char* dir_array[MAX_DIR_DEPTH]={};
+	char* tmp = malloc(sizeof(char)*512);
+	strlcpy(tmp,target,512);
+	//directory support
+	char* buf;
+	char* cut;
+	struct inode* inode = NULL;
+	int i = 0;
+	cut = strtok_r((char*)tmp, "/", &buf);
+	while (cut!=NULL){
+		dir_array[i] = cut;
+		i++;
+		cut = strtok_r(NULL, "/", &buf);
+	}
+	if (dir_array[0]== NULL) return NULL;
+	for (int j=0;j<=i;j++){
+		if (dir_array[j+1]==NULL){
+			dir_lookup(dir, dir_array[j], &inode);
+			if (inode==NULL) return NULL;
+			if (inode_type(inode)==DIR_INODE){
+				dir = dir_open(inode);
+				if (dir == NULL) return -1;
+				free(tmp);
+				return inode;
+			}
+			else{
+				struct dir* old_dir = t->current_dir;
+				t->current_dir = dir_reopen(dir);
+				lock_acquire(&filesys_lock);
+				struct file* file = filesys_open(dir_array[j]);
+				lock_release(&filesys_lock);
+				t->current_dir = old_dir;
+				free(tmp);
+				return file_get_inode(file);
+			}
+		}
+		dir_lookup(dir, dir_array[j], &inode);
+		dir_close(dir);
+		dir = dir_open(inode);
+		if (dir==NULL) return -1;
+	}
+
+}
+
+static int 
+symlink_s (const char* target, const char* linkpath){
+	
+	is_correct_addr((void*) target);
+	is_correct_addr((void*) linkpath);
+	struct thread* t= thread_current();
+
+	if (strcmp(target, "/")==0){
+		return -1;
+	}
+
+	struct dir* dir = t->current_dir;
+	struct dir* old_dir = t->current_dir;
+	if (dir == NULL)
+		dir = dir_open_root();
+
+	char* dir_array[MAX_DIR_DEPTH]={};
+	char* tmp = malloc(sizeof(char)*512);
+	strlcpy(tmp,linkpath,512);
+	//directory support
+	char* buf;
+	char* cut;
+	struct inode* inode = NULL;
+	int i = 0;
+	cut = strtok_r((char*)tmp, "/", &buf);
+	while (cut!=NULL){
+		dir_array[i] = cut;
+		i++;
+		cut = strtok_r(NULL, "/", &buf);
+	}
+	if (dir_array[0]== NULL) return -1;
+	for (int j=0;j<=i;j++){
+		if (dir_array[j+1]==NULL){
+			dir_lookup(dir, dir_array[j], &inode);
+			if (inode!=NULL) return -1;
+			struct inode* inode = get_inode_of_target(target);
+			if (inode==NULL) return -1;
+			dir_add(dir, dir_array[j], inode_get_inumber(inode));
+			set_link(dir, dir_array[j]);
+			free(tmp);
+			return 0;
+		}
+		dir_lookup(dir, dir_array[j], &inode);
+		dir_close(dir);
+		dir = dir_open(inode);
+		if (dir==NULL) return -1;
+	}
+
 }
