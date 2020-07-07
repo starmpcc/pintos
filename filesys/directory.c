@@ -7,11 +7,13 @@
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 #include "filesys/inode.h"
+#include "threads/thread.h"
 
 /* A directory. */
 struct dir {
 	struct inode *inode;                /* Backing store. */
 	off_t pos;                          /* Current position. */
+	disk_sector_t pdir;
 };
 
 /* A single directory entry. */
@@ -30,6 +32,14 @@ dir_create (disk_sector_t sector, size_t entry_cnt) {
 	bool success =  inode_create (sector, entry_cnt * sizeof (struct dir_entry));
 	if (success){
 		inode_set_dir(sector);
+		struct inode* inode = inode_open(sector);
+		struct dir* dir = dir_open(inode);
+		dir_add(dir, ".", sector);
+		if (thread_current()->pdir!=NULL){
+			dir_add(dir, "..", inode_get_inumber(dir_get_inode(thread_current()->pdir)));
+			dir->pdir = inode_get_inumber(dir_get_inode(thread_current()->pdir));
+		}			
+		inode_close(inode);
 	}
 	return success;
 }
@@ -226,4 +236,11 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1]) {
 		}
 	}
 	return false;
+}
+
+struct dir* pdir(struct dir * dir){
+	if (dir->pdir == 0){
+		return dir_open_root();
+	}
+	return dir_open(inode_open(dir->pdir));
 }

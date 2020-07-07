@@ -123,6 +123,7 @@ struct thread {
 #endif
 #ifdef FILESYS
 	struct dir* current_dir;
+	struct dir* pdir;
 #endif
 //for 2 userprog
 	struct list open_file;

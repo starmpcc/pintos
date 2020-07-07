@@ -391,6 +391,7 @@ create_s (const char *file, unsigned inital_size){
 	for (int j=0;j<=i;j++){
 		if (dir_array[j+1]==NULL){
 			if (dir_array[j]==NULL) return 0;
+			if (!dir_lookup(dir, ".", &inode)) return 0;
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode!=NULL) return 0;
 			if (strlen(dir_array[j])>MAX_FILE_NAME) return 0;
@@ -437,9 +438,25 @@ remove_s (const char *file){
 	for (int j=0;j<=i;j++){
 		if (dir_array[j+1]==NULL){
 			if (dir_array[j]==NULL) return 0;
+			if (dir_lookup(pdir(dir), dir_array[j],&inode)){
+				struct dir* target = dir_open(inode);
+				dir_remove(target, ".");
+				dir_remove(target, "..");
+				struct dir* old_dir = t->current_dir;
+				t->current_dir = dir_reopen(dir);
+				dir_remove(dir, dir_array[j]);
+				t->current_dir = old_dir;
+				//parent delete?
+				free(tmp);
+				return 1;
+			}
+			else dir_close(pdir(dir));
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode==NULL) return 0;
 			if (inode_type(inode) == DIR_INODE){
+				struct dir* target = dir_open(inode);
+				dir_remove(target, ".");
+				dir_remove(target, "..");
 				struct dir* old_dir = t->current_dir;
 				t->current_dir = dir_reopen(dir);
 				dir_remove(dir, dir_array[j]);
@@ -764,6 +781,7 @@ mkdir_s (const char* name){
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode!=NULL) return 0;
 			disk_sector_t inode_sector = 0;
+			thread_current()->pdir = dir;
 			bool success = (dir != NULL
 					&& fat_allocate (1, &inode_sector)
 					&& dir_create (inode_sector, 16)  ///temporal number
@@ -787,6 +805,8 @@ static bool
 readdir_s (int fd, char* name){
 	struct thread_file* tf = get_tf (fd);
 	if (strlen(name)>14) return false;
+	dir_readdir(tf->dir, name);
+	dir_readdir(tf->dir, name);
 	return dir_readdir(tf->dir, name);
 }
 
