@@ -6,6 +6,7 @@
 #include "filesys/filesys.h"
 #include "filesys/fat.h"
 #include "threads/malloc.h"
+#include "filesys/directory.h"
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
@@ -16,7 +17,10 @@ struct inode_disk {
 	off_t length;                       /* File size in bytes. */
 	unsigned magic;                     /* Magic number. */
 	uint32_t type;
-	uint32_t unused[124];               /* Not used. */
+	uint64_t link[4];
+	char name[4][16];
+	uint32_t idx;
+	uint32_t unused[99];               /* Not used. */
 };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -89,6 +93,7 @@ inode_create (disk_sector_t sector, off_t length) {
 		size_t sectors = bytes_to_sectors (length);
 		disk_inode->length = length;
 		disk_inode->magic = INODE_MAGIC;
+		disk_inode->idx = 0;
 		if (fat_allocate (sectors, &disk_inode->start)) {
 			disk_write (filesys_disk, sector, disk_inode);
 			if (sectors > 0) {
@@ -380,6 +385,41 @@ inode_set_file(disk_sector_t inum){
 	inode_close(inode);
 }
 
-bool inode_type(struct inode* inode){
+void
+inode_set_fake(disk_sector_t inum){
+	struct inode* inode = inode_open(inum);
+	disk_read (filesys_disk, inode->sector, &inode->data);
+	inode->data.type = FAKE_INODE;
+	disk_write(filesys_disk, inode->sector, &inode->data);
+	inode_close(inode);
+}
+
+int inode_type(struct inode* inode){
 	return inode->data.type;
+}
+
+void
+inode_set_deref(struct inode* inode, struct dir* dir, char* name){
+	disk_read (filesys_disk, inode->sector, &inode->data);
+	inode->data.link[inode->data.idx] = (uint64_t) dir;
+	strlcpy(inode->data.name[inode->data.idx], name, 16);
+	inode->data.idx++;
+	if (inode->data.idx>4)
+		NOT_REACHED();
+	disk_write(filesys_disk, inode->sector, &inode->data);
+
+}
+
+void
+inode_overwrite_link(struct inode* inode, struct inode* old_inode){
+	disk_read (filesys_disk, old_inode->sector, &old_inode->data);
+	for (int i = 0; i<old_inode->data.idx;i++){
+		dir_remove_except_inode((struct dir*) old_inode->data.link[i], old_inode->data.name[i]);
+		dir_add ((struct dir*) old_inode->data.link[i], old_inode->data.name, inode_get_inumber(inode));
+	}
+	inode_close(old_inode);
+}
+
+void inode_reactive(struct inode* inode){
+	inode->removed = false;
 }

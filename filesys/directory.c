@@ -261,3 +261,36 @@ void set_link(struct dir* dir, char* name){
 	ASSERT(success);
 	e.link = 1;
 }
+
+bool
+dir_remove_except_inode (struct dir *dir, const char *name) {
+	struct dir_entry e;
+	struct inode *inode = NULL;
+	bool success = false;
+	off_t ofs;
+
+	ASSERT (dir != NULL);
+	ASSERT (name != NULL);
+
+	/* Find directory entry. */
+	if (!lookup (dir, name, &e, &ofs))
+		goto done;
+
+	/* Open inode. */
+	inode = inode_open (e.inode_sector);
+	if (inode == NULL)
+		goto done;
+
+	/* Erase directory entry. */
+	e.in_use = false;
+	if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e)
+		goto done;
+
+	/* Remove inode. */
+	inode_set_file(inode_get_inumber(inode));
+	success = true;
+
+done:
+	inode_close (inode);
+	return success;
+}

@@ -397,7 +397,31 @@ create_s (const char *file, unsigned inital_size){
 			if (dir_array[j]==NULL) return 0;
 			if (!dir_lookup(dir, ".", &inode)) return 0;
 			dir_lookup(dir, dir_array[j], &inode);
-			if (inode!=NULL) return 0;
+			if (inode!=NULL){
+				if (inode_type(inode)==FAKE_INODE){
+					struct dir* old_dir = t->current_dir;
+					t->current_dir = dir_reopen(dir);
+					lock_acquire(&filesys_lock);
+					struct file* fake_file = filesys_open(dir_array[j]);
+					lock_release(&filesys_lock);
+					struct inode* old_inode = inode_reopen(file_get_inode(fake_file));
+					dir_remove_except_inode(dir, dir_array[j]);
+					t->current_dir = dir_reopen(dir);
+					lock_acquire(&filesys_lock);
+					filesys_create(dir_array[j], (off_t)inital_size);
+					lock_release(&filesys_lock);
+					t->current_dir = dir_reopen(dir);
+					lock_acquire(&filesys_lock);
+					struct file* file = filesys_open(dir_array[j]);
+					lock_release(&filesys_lock);
+					t->current_dir = old_dir;
+					struct inode* file_inode = file_get_inode(file);
+					inode_overwrite_link(file_inode, old_inode);
+					free(tmp);
+					return 1;
+				}
+				else return 0;
+			}
 			if (strlen(dir_array[j])>MAX_FILE_NAME) return 0;
 			struct dir* old_dir = t->current_dir;
 			t->current_dir = dir_reopen(dir);
@@ -540,6 +564,7 @@ open_s (const char *file){
 		if (dir_array[j+1]==NULL){
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode==NULL) return -1;
+			printf("tpye of %s:%d\n", file, inode_type(inode));
 			if (inode_type(inode)==DIR_INODE){
 				dir = dir_open(inode);
 				if (dir == NULL) return -1;
@@ -835,7 +860,7 @@ inumber_s (int fd){
 }
 
 static struct inode*
-get_inode_of_target(const char* target){
+get_inode_of_target(const char* target, char* name){
 	is_correct_addr((void*) target);
 	struct thread* t= thread_current();
 	if (strcmp(target, "/")==0){
@@ -863,10 +888,28 @@ get_inode_of_target(const char* target){
 	for (int j=0;j<=i;j++){
 		if (dir_array[j+1]==NULL){
 			dir_lookup(dir, dir_array[j], &inode);
-			if (inode==NULL) return NULL;
+			if (inode==NULL){
+				struct dir* old_dir = t->current_dir;
+				t->current_dir = dir_reopen(dir);
+				lock_acquire(&filesys_lock);
+				filesys_create(dir_array[j], 512);
+				t->current_dir = dir_reopen(dir);
+				struct file* file =  filesys_open(dir_array[j]);
+				lock_release(&filesys_lock);
+				inode = file_get_inode(file);
+				inode_set_fake(inode_get_inumber(inode));
+				inode_set_deref(inode, dir, name);
+				t->current_dir = old_dir;
+				return inode;
+			}
 			if (inode_type(inode)==DIR_INODE){
 				dir = dir_open(inode);
-				if (dir == NULL) return -1;
+				if (dir == NULL) return NULL;
+				free(tmp);
+				return inode;
+			}
+			else if (inode_type(inode)==FAKE_INODE){
+				inode_set_deref(inode, dir, name);
 				free(tmp);
 				return inode;
 			}
@@ -924,12 +967,16 @@ symlink_s (const char* target, const char* linkpath){
 		if (dir_array[j+1]==NULL){
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode!=NULL) return -1;
-			struct inode* inode = get_inode_of_target(target);
+			int* aux = malloc(sizeof(int));
+			struct inode* inode = get_inode_of_target(target, dir_array[j]);
 			if (inode==NULL) return -1;
-			dir_add(dir, dir_array[j], inode_get_inumber(inode));
-			set_link(dir, dir_array[j]);
-			free(tmp);
-			return 0;
+			else{
+				dir_add(dir, dir_array[j], inode_get_inumber(inode));
+				set_link(dir, dir_array[j]);
+				free(tmp);
+				return 0;
+			}
+
 		}
 		dir_lookup(dir, dir_array[j], &inode);
 		dir_close(dir);

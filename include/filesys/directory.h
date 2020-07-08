@@ -28,4 +28,5 @@ struct dir* pdir(struct dir *);
 bool link_create(struct dir*, struct dir*);
 bool is_link(struct dir*, char*);
 void set_link(struct dir*, char*);
+bool dir_remove_except_inode (struct dir*, const char*);
 #endif /* filesys/directory.h */
