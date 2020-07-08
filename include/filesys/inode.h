@@ -4,10 +4,8 @@
 #include <stdbool.h>
 #include "filesys/off_t.h"
 #include "devices/disk.h"
-#include "filesys/directory.h"
 #define DIR_INODE 1
 #define FILE_INODE 0
-#define FAKE_INODE 2
 
 struct bitmap;
 
@@ -25,9 +23,5 @@ void inode_allow_write (struct inode *);
 off_t inode_length (const struct inode *);
 void inode_set_dir (disk_sector_t);
 void inode_set_file (disk_sector_t);
-void inode_set_fake (disk_sector_t);
-int inode_type (struct inode*);
-void inode_set_deref(struct inode*, struct dir*, char*);
-void inode_overwrite_link(struct inode*, struct inode*);
-void inode_reactive(struct inode*);
+bool inode_type (struct inode*);
 #endif /* filesys/inode.h */
