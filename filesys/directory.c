@@ -39,7 +39,10 @@ dir_create (disk_sector_t sector, size_t entry_cnt) {
 		if (thread_current()->pdir!=NULL){
 			dir_add(dir, "..", inode_get_inumber(dir_get_inode(thread_current()->pdir)));
 			dir->pdir = inode_get_inumber(dir_get_inode(thread_current()->pdir));
-		}			
+		}
+		else{
+			dir_add(dir, "..",NULL);
+		}
 		inode_close(inode);
 	}
 	return success;
