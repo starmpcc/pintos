@@ -829,9 +829,14 @@ isdir_s (int fd){
 static int
 inumber_s (int fd){
 	struct thread_file* tf = get_tf(fd);
-	ASSERT(tf->dir!=NULL);
-	struct dir* dir = tf->dir;
-	inode_get_inumber(dir_get_inode(dir));
+	if(tf->dir==NULL){
+		return inode_get_inumber(file_get_inode(tf->file));
+	}
+	else{
+		struct dir* dir = tf->dir;
+		return inode_get_inumber(dir_get_inode(dir));
+	}
+
 }
 
 static struct inode*
