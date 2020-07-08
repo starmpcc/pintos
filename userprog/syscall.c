@@ -814,8 +814,6 @@ mkdir_s (const char* name){
 static bool
 readdir_s (int fd, char* name){
 	struct thread_file* tf = get_tf (fd);
-	dir_readdir(tf->dir, name);
-	dir_readdir(tf->dir, name);
 	return dir_readdir(tf->dir, name);
 }
 
