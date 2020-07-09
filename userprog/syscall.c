@@ -446,6 +446,7 @@ remove_s (const char *file){
 
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode==NULL){
+				//try to delete itself
 				if (dir_lookup(pdir(dir), dir_array[j],&inode)){
 					struct dir* target = dir_open(inode);
 					if (dir_is_elem(target)==1){
@@ -453,11 +454,7 @@ remove_s (const char *file){
 					}
 					dir_remove(target, ".");
 					dir_remove(target, "..");
-					dir_remove(dir, dir_array[j]);
-					struct dir* old_dir = t->current_dir;
-					t->current_dir = dir_reopen(dir);
-					dir_remove(dir, dir_array[j]);
-					t->current_dir = old_dir;
+					dir_remove(pdir(dir), dir_array[j]);
 					//parent delete?
 					free(tmp);
 					return 1;
