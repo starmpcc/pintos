@@ -443,21 +443,30 @@ remove_s (const char *file){
 	for (int j=0;j<=i;j++){
 		if (dir_array[j+1]==NULL){
 			if (dir_array[j]==NULL) return 0;
-			if (dir_lookup(pdir(dir), dir_array[j],&inode)){
-				struct dir* target = dir_open(inode);
-				dir_remove(target, ".");
-				dir_remove(target, "..");
-				struct dir* old_dir = t->current_dir;
-				t->current_dir = dir_reopen(dir);
-				dir_remove(dir, dir_array[j]);
-				t->current_dir = old_dir;
-				//parent delete?
-				free(tmp);
-				return 1;
-			}
-			else dir_close(pdir(dir));
+
 			dir_lookup(dir, dir_array[j], &inode);
-			if (inode==NULL) return 0;
+			if (inode==NULL){
+				if (dir_lookup(pdir(dir), dir_array[j],&inode)){
+					struct dir* target = dir_open(inode);
+					if (dir_is_elem(target)==1){
+						return 0;
+					}
+					dir_remove(target, ".");
+					dir_remove(target, "..");
+					dir_remove(dir, dir_array[j]);
+					struct dir* old_dir = t->current_dir;
+					t->current_dir = dir_reopen(dir);
+					dir_remove(dir, dir_array[j]);
+					t->current_dir = old_dir;
+					//parent delete?
+					free(tmp);
+					return 1;
+				}
+				else {
+					dir_close(pdir(dir));
+					return 0;
+				}
+			} 
 			if (is_link(dir, dir_array[j])){
 				dir_remove(dir ,dir_array[j]);
 				free (tmp);
@@ -465,13 +474,12 @@ remove_s (const char *file){
 			}
 			if (inode_type(inode) == DIR_INODE){
 				struct dir* target = dir_open(inode);
+				if (dir_is_elem(target)==1){
+					return 0;
+				}
 				dir_remove(target, ".");
 				dir_remove(target, "..");
-				struct dir* old_dir = t->current_dir;
-				t->current_dir = dir_reopen(dir);
 				dir_remove(dir, dir_array[j]);
-				t->current_dir = old_dir;
-				//parent delete?
 				free(tmp);
 				return 1;	
 			}
@@ -814,10 +822,6 @@ mkdir_s (const char* name){
 static bool
 readdir_s (int fd, char* name){
 	struct thread_file* tf = get_tf (fd);
-	if (dir_get_pos(tf->dir) == 0){
-		dir_readdir(tf->dir, name);
-		dir_readdir(tf->dir, name);
-	}
 	return dir_readdir(tf->dir, name);
 }
 

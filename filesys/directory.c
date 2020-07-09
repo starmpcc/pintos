@@ -234,7 +234,9 @@ done:
 bool
 dir_readdir (struct dir *dir, char name[NAME_MAX + 1]) {
 	struct dir_entry e;
-
+	if (dir->pos == 0){
+		dir->pos+=2* (sizeof(e));
+	}
 	while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) {
 		dir->pos += sizeof e;
 		if (e.in_use) {
@@ -265,6 +267,21 @@ void set_link(struct dir* dir, char* name){
 	e.link = 1;
 }
 
-int32_t dir_get_pos(struct dir* dir){
-	return dir->pos;
+//helper for remove
+bool
+dir_is_elem (struct dir *dir) {
+	struct dir_entry e;
+	off_t old_ofs = dir->pos;
+	if (dir->pos == 0){
+		dir->pos+=2* (sizeof(e));
+	}
+	while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) {
+		dir->pos += sizeof e;
+		if (e.in_use) {
+			dir->pos = old_ofs;
+			return true;
+		}
+	}
+	dir->pos = old_ofs;
+	return false;
 }
