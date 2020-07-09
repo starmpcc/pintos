@@ -28,4 +28,5 @@ struct dir* pdir(struct dir *);
 bool link_create(struct dir*, struct dir*);
 bool is_link(struct dir*, char*);
 void set_link(struct dir*, char*);
+int32_t dir_get_pos(struct dir* dir);
 #endif /* filesys/directory.h */

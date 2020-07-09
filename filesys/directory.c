@@ -264,3 +264,7 @@ void set_link(struct dir* dir, char* name){
 	ASSERT(success);
 	e.link = 1;
 }
+
+int32_t dir_get_pos(struct dir* dir){
+	return dir->pos;
+}
