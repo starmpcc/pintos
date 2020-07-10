@@ -24,7 +24,7 @@ struct dir_entry {
 	bool link;							/* 0: normal 1: link */
 };
 
-
+int dir_cnt = 0;
 
 /* Creates a directory with space for ENTRY_CNT entries in the
  * given SECTOR.  Returns true if successful, false on failure. */
@@ -44,6 +44,9 @@ dir_create (disk_sector_t sector, size_t entry_cnt) {
 			dir_add(dir, "..",NULL);
 		}
 		inode_close(inode);
+		if (++dir_cnt > 512){
+			return false;
+		}
 	}
 	return success;
 }
