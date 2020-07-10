@@ -976,6 +976,13 @@ get_inode_of_target(const char* target, struct dir* link_parent, char* link_name
 				struct file* file = filesys_open(dir_array[j]);
 				lock_release(&filesys_lock);
 				t->current_dir = old_dir;
+				struct tmp_sym* ts = malloc(sizeof(struct tmp_sym));
+				strlcpy(ts->target_name, dir_array[j], 15);
+				ts->target_parent = dir;
+				ts->link_parent = link_parent;
+				strlcpy(ts->link_name, link_name, 15);
+				list_push_back(&tmp_sym_list, &ts->elem);
+
 				free(tmp);
 				return file_get_inode(file);
 			}
