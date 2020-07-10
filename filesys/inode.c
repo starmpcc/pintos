@@ -6,6 +6,7 @@
 #include "filesys/filesys.h"
 #include "filesys/fat.h"
 #include "threads/malloc.h"
+#include "threads/synch.h"
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
@@ -35,6 +36,7 @@ struct inode {
 	int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
 	bool type;							/* 0: file, 1: dir */
 	struct inode_disk data;             /* Inode content. */
+	struct lock inode_lock;
 };
 
 void extend_inode_if_needed (struct inode *, off_t, off_t);
@@ -137,6 +139,7 @@ inode_open (disk_sector_t sector) {
 	inode->open_cnt = 1;
 	inode->deny_write_cnt = 0;
 	inode->removed = false;
+	lock_init(&inode->inode_lock);
 	disk_read (filesys_disk, inode->sector, &inode->data);
 	return inode;
 }
@@ -195,7 +198,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 	uint8_t *buffer = buffer_;
 	off_t bytes_read = 0;
 	uint8_t *bounce = NULL;
-
+	lock_acquire(&inode->inode_lock);
 	while (size > 0) {
 		/* Disk sector to read, starting byte offset within sector. */
 		disk_sector_t sector_idx = byte_to_sector (inode, offset);
@@ -232,6 +235,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 		bytes_read += chunk_size;
 	}
 	free (bounce);
+	lock_release(&inode->inode_lock);
 
 	return bytes_read;
 }
@@ -250,7 +254,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 
 	if (inode->deny_write_cnt)
 		return 0;
-
+	lock_acquire(&inode->inode_lock);
 	while (size > 0) {
 		extend_inode_if_needed (inode, offset, size);
 
@@ -296,6 +300,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 		bytes_written += chunk_size;
 	}
 	free (bounce);
+	lock_release(&inode->inode_lock);
 
 	return bytes_written;
 }
