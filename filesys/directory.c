@@ -260,11 +260,14 @@ bool is_link(struct dir* dir, char* name){
 	return e.link;
 }
 
+
 void set_link(struct dir* dir, char* name){
 	struct dir_entry e;
-	bool success = lookup(dir, name ,&e, NULL);
+	off_t ofs;
+	bool success = lookup(dir, name ,&e, &ofs);
 	ASSERT(success);
 	e.link = 1;
+	inode_write_at(dir->inode, &e, sizeof e, ofs);
 }
 
 //helper for remove

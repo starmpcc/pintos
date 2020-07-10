@@ -370,6 +370,37 @@ exec_s (char *input) {
 	return process_exec(in_copy);
 }
 
+static bool tmp_sym_included(struct dir* dir, char* name){
+	if (list_empty(&tmp_sym_list)) return 0;
+	for (struct list_elem* i = list_front(&tmp_sym_list); i!=list_end(&tmp_sym_list); i = list_next(i) ){
+		struct tmp_sym* ts = list_entry(i, struct tmp_sym, elem);
+		bool success = !strcmp(ts->target_name, name);
+		success &= (dir_get_inode(dir) == dir_get_inode(ts->target_parent));
+		if (success) return 1;
+	}
+	return 0;
+}
+
+static void
+tmp_sym_create(struct dir* dir, char* name, struct file* file){
+	struct thread* t = thread_current();
+	for (struct list_elem* i = list_front(&tmp_sym_list); i!=list_end(&tmp_sym_list); i = list_next(i) ){
+		struct tmp_sym* ts = list_entry(i, struct tmp_sym, elem);
+		bool success = !strcmp(ts->target_name, name);
+		success &= (dir_get_inode(dir) == dir_get_inode(ts->target_parent));
+		if (success){
+			struct dir* old_dir = t->current_dir;
+			t->current_dir = dir_reopen(ts-> link_parent);
+			lock_acquire(&filesys_lock);
+			filesys_remove(ts->link_name);
+			lock_release(&filesys_lock);
+			t->current_dir = old_dir;
+			disk_sector_t inum = inode_get_inumber(file_get_inode(file));
+			dir_add(ts->link_parent, ts->link_name, inum);
+		}
+	}
+}
+
 static bool 
 create_s (const char *file, unsigned inital_size){
 	is_correct_addr((void*) file);
@@ -395,6 +426,20 @@ create_s (const char *file, unsigned inital_size){
 	for (int j=0;j<=i;j++){
 		if (dir_array[j+1]==NULL){
 			if (dir_array[j]==NULL) return 0;
+			if (tmp_sym_included(dir, dir_array[j])){
+				struct dir* old_dir = t->current_dir;
+				t->current_dir = dir_reopen(dir);
+				lock_acquire(&filesys_lock);
+				filesys_create(dir_array[j], (off_t) inital_size);
+				lock_release(&filesys_lock);
+				t->current_dir = dir_reopen(dir);
+				lock_acquire(&filesys_lock);
+				struct file* target = filesys_open(dir_array[j]);
+				lock_release(&filesys_lock);
+				t->current_dir = old_dir;
+				tmp_sym_create(dir, dir_array[j], target);
+				return 1;
+			}
 			if (!dir_lookup(dir, ".", &inode)) return 0;
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode!=NULL) return 0;
@@ -841,8 +886,25 @@ inumber_s (int fd){
 
 }
 
+static struct tmp_sym* find_link_root (struct dir* target_dir, char* target_name){
+	if (list_empty(&tmp_sym_list)) return NULL;
+	for (struct list_elem* i = list_front(&tmp_sym_list); i!=list_end(&tmp_sym_list); i = list_next(i) ){
+		struct tmp_sym* ts = list_entry(i, struct tmp_sym, elem);
+		bool success = !strcmp((char*)ts->link_name, target_name);
+		success &= (dir_get_inode(target_dir) == dir_get_inode(ts->link_parent));
+		if (success){
+			struct tmp_sym* new_ts = malloc (sizeof (struct tmp_sym));
+			new_ts->target_parent = ts->target_parent;
+			strlcpy(new_ts->target_name, ts->target_name,15);
+			return new_ts;
+		}
+	}
+	return NULL;
+
+}
+
 static struct inode*
-get_inode_of_target(const char* target){
+get_inode_of_target(const char* target, struct dir* link_parent, char* link_name){
 	is_correct_addr((void*) target);
 	struct thread* t= thread_current();
 	if (strcmp(target, "/")==0){
@@ -870,7 +932,37 @@ get_inode_of_target(const char* target){
 	for (int j=0;j<=i;j++){
 		if (dir_array[j+1]==NULL){
 			dir_lookup(dir, dir_array[j], &inode);
-			if (inode==NULL) return NULL;
+			if (inode==NULL){
+				//add to tmp_sym_list;
+				struct tmp_sym* ts = malloc(sizeof(struct tmp_sym));
+				strlcpy(ts->target_name, dir_array[j], 15);
+				ts->target_parent = dir;
+				ts->link_parent = link_parent;
+				strlcpy(ts->link_name, link_name, 15);
+				list_push_back(&tmp_sym_list, &ts->elem);
+				struct dir* old_dir = t->current_dir;
+				t->current_dir = dir_reopen(link_parent);
+				lock_acquire(&filesys_lock);
+				filesys_create(link_name, 0);
+				lock_release(&filesys_lock);
+				t->current_dir = old_dir;
+				set_link(link_parent, link_name);
+				return (struct inode*) UINT64_MAX;
+			}
+			if (is_link(dir, dir_array[j])){
+				struct tmp_sym* ts = find_link_root(dir, dir_array[j]);
+				ts->link_parent = link_parent;
+				strlcpy(ts->link_name, link_name, 15);
+				list_push_back(&tmp_sym_list, &ts->elem);
+				struct dir* old_dir = t->current_dir;
+				t->current_dir = dir_reopen(link_parent);
+				lock_acquire(&filesys_lock);
+				filesys_create(link_name, 0);
+				lock_release(&filesys_lock);
+				t->current_dir = old_dir;
+				set_link(link_parent, link_name);
+				return (struct inode*) UINT64_MAX;
+			}
 			if (inode_type(inode)==DIR_INODE){
 				dir = dir_open(inode);
 				if (dir == NULL) return -1;
@@ -931,8 +1023,12 @@ symlink_s (const char* target, const char* linkpath){
 		if (dir_array[j+1]==NULL){
 			dir_lookup(dir, dir_array[j], &inode);
 			if (inode!=NULL) return -1;
-			struct inode* inode = get_inode_of_target(target);
+			struct inode* inode = get_inode_of_target(target, dir, dir_array[j]);
 			if (inode==NULL) return -1;
+			if (inode == (struct inode*) UINT64_MAX){
+				free(tmp);
+				return 0;
+			}
 			dir_add(dir, dir_array[j], inode_get_inumber(inode));
 			set_link(dir, dir_array[j]);
 			free(tmp);

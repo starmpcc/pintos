@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "devices/disk.h"
+#include "kernel/list.h"
 /* Maximum length of a file name component.
  * This is the traditional UNIX maximum length.
  * After directories are implemented, this maximum length may be
@@ -29,4 +30,12 @@ bool link_create(struct dir*, struct dir*);
 bool is_link(struct dir*, char*);
 void set_link(struct dir*, char*);
 bool dir_is_elem (struct dir *dir);
+struct tmp_sym{
+    char target_name[15];
+    struct dir* target_parent;
+	char link_name[15];
+    struct dir* link_parent;
+	struct list_elem elem;
+};
+struct list tmp_sym_list;
 #endif /* filesys/directory.h */

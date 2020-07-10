@@ -26,7 +26,7 @@ filesys_init (bool format) {
 
 #ifdef EFILESYS
 	fat_init ();
-
+	list_init(&tmp_sym_list);
 	if (format)
 		do_format ();
 
